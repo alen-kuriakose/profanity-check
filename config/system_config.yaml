@@ -1,0 +1,15 @@
+modules:
+  video_analysis:
+    enabled: true
+    sensitivity: 0.7
+  audio_analysis:
+    enabled: false
+    sensitivity: 0.6
+  text_extraction:
+    enabled: false
+  text_analysis:
+    enabled: false
+    sensitivity: 0.8
+  image_analysis:
+    enabled: false
+    sensitivity: 0.7

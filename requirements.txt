@@ -1,0 +1,31 @@
+fastapi
+uvicorn
+pydantic
+pyyaml
+moviepy
+openai-whisper
+numpy 
+scikit-learn 
+joblib 
+better-profanity
+# profanity-filter
+fastapi
+uvicorn
+opencv-python-headless
+pytesseract
+Pillow
+python-multipart
+easyocr<1.7
+torch<=1.11.0
+torchvision<=0.12.0
+paddlepaddle
+paddleocr
+# craft-text-detector
+nsfw-detector
+tensorflow==2.8.0
+# Note: nsfw-detector requires tensorflow-hub==0.7.0, but we're using a newer version
+# If you encounter issues, you may need to downgrade tensorflow-hub
+tensorflow-hub==0.12.0
+# Fix for protobuf compatibility issues with TensorFlow
+protobuf<=3.20.0
+

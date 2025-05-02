@@ -68,3 +68,6 @@ def process_nsfw_analysis(message: Dict[str, Any]) -> bool:
         logger.exception(f"Error in NSFW analysis for video {content_id}: {str(e)}")
         db.update_nsfw_analysis(analysis_id, 'failed', error_message=str(e))
         return False
+    
+    
+    

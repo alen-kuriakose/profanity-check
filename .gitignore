@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .env
 *.sqlite3
+modules/video_analysis/frames
+logs
+test_data
+examples

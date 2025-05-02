@@ -4,6 +4,8 @@ from better_profanity import profanity
 import cv2
 import logging
 import os
+
+from ultralytics import YOLO
 def calculate_profanity_confidence(text):
         """
         Calculate a confidence score for profanity based on:
@@ -284,3 +286,64 @@ def cleanup_temp_file(file_path):
             os.remove(file_path)
     except Exception as e:
         logging.warning(f"Could not delete temp file {file_path}: {str(e)}")
+        
+import os
+from pathlib import Path
+
+import cv2
+
+
+def divide_video_to_frames(video_path):
+    video_path_str=Path(video_path)
+    base_dir = Path(__file__).resolve().parent / 'frames'
+    print (base_dir)
+    output_folder=base_dir / video_path_str.stem
+    os.makedirs(output_folder,exist_ok=True)
+    cap=cv2.VideoCapture(str(video_path))
+    fps= cap.get(cv2.CAP_PROP_FPS)
+    success , frame = cap.read()
+    count = 0
+    while success:
+        frame_file = os.path.join(output_folder,f"frame_{count:04d}.jpg")
+        cv2.imwrite(frame_file,frame)
+        success,frame =cap.read()
+        count+=1
+
+    cap.release()
+    detect_violence(output_folder)
+    print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    
+
+model = YOLO('yolov8n.pt')
+clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+# Labels for zero-shot CLIP classification
+clip_labels = [
+    "a violent scene",
+    "a fight",
+    "an adult scene",
+    "a normal scene"
+]
+def detect_violence(frames_folder):
+    results = []
+    frames = sorted(os.listdir(frames_folder))
+
+    for i, frame in enumerate(frames):
+        frame_path = os.path.join(frames_folder, frame)
+        preds = model(frame_path)
+        
+        for pred in preds:
+            labels = pred.names
+            for cls_id in pred.boxes.cls:
+                label = labels[int(cls_id)]
+                if label in ["fight", "weapon", "aggressive"]:  # example classes
+                    timestamp = f"00:{str(i).zfill(2)}"  # Assuming 1 FPS
+                    results.append({
+                        "timestamp": timestamp,
+                        "frame": frame,
+                        "label": label
+                    })
+                    
+    print("results",results)
+    return results 

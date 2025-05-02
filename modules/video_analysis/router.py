@@ -9,7 +9,8 @@ import os
 from moviepy import VideoFileClip, TextClip, CompositeVideoClip
 import whisper
 from better_profanity import profanity
-from .helper import calculate_profanity_confidence, cleanup_temp_file, format_timestamp, get_recommended_preprocessing, preprocess_frame
+
+from .helper import calculate_profanity_confidence, cleanup_temp_file, format_timestamp, get_recommended_preprocessing, preprocess_frame,divide_video_to_frames
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from tempfile import NamedTemporaryFile
@@ -61,6 +62,9 @@ except Exception as e:
     hf_models_available = False
 ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
 profanity.load_censor_words()
+
+
+
 @router.post("/analyze")
 async def analyze_video(
     content_id: str = Form(...),
@@ -109,8 +113,9 @@ async def analyze_video(
         max_nsfw_confidence = 0.0
         max_violence_confidence = 0.0
         max_profanity_confidence = 0.0
-        
+        divide_video_to_frames(tmp_path)
         for frame_num, timestamp, frame in extract_frames(tmp_path, frame_interval=frame_interval):
+            
             # Resize frame for faster processing
             height, width = frame.shape[:2]
             if max(height, width) > 480:  # Use a reasonable size for analysis

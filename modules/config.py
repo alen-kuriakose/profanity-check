@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field
 class DatabaseConfig(BaseModel):
     """Database configuration."""
     host: str = Field(default="localhost")
-    port: int = Field(default=5432)
+    port: int = Field(default=5433)  # Updated to use port 5433
     name: str = Field(default="igot")
     user: str = Field(default="postgres")
-    password: str = Field(default="admin")
+    password: str = Field(default="postgres")  # Updated to match docker-compose password
 
 class KafkaConfig(BaseModel):
     """Kafka configuration."""
@@ -43,10 +43,10 @@ def get_settings() -> Settings:
         _settings = Settings(
             database=DatabaseConfig(
                 host=os.getenv("DB_HOST", "localhost"),
-                port=int(os.getenv("DB_PORT", "5432")),
-                name=os.getenv("DB_NAME", "igot"),  # Using the igot database we just created
+                port=int(os.getenv("DB_PORT", "5433")),  # Updated to use port 5433
+                name=os.getenv("DB_NAME", "igot"),
                 user=os.getenv("DB_USER", "postgres"),
-                password=os.getenv("DB_PASSWORD", "admin")  # You'll need to provide the correct password
+                password=os.getenv("DB_PASSWORD", "postgres")  # Updated to match docker-compose password
             ),
             kafka=KafkaConfig(
                 bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092").split(",")

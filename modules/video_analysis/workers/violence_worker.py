@@ -3,6 +3,7 @@ Worker for violence content analysis.
 """
 import os
 import logging
+import json
 from typing import Dict, Any
 
 from modules.video_analysis.database import db
@@ -45,6 +46,9 @@ def process_violence_analysis(message: Dict[str, Any]) -> bool:
         results = analyze_violence(file_path)
         
         # Update analysis with results
+        # Convert the frames list to a JSON string for database storage
+        frames_json = json.dumps(results.get('frames', []))
+        
         db.update_violence_analysis(
             analysis_id,
             'completed',
@@ -54,7 +58,7 @@ def process_violence_analysis(message: Dict[str, Any]) -> bool:
             max_violence_confidence=results.get('max_violence_confidence', 0),
             processing_time_seconds=results.get('processing_time_seconds', 0),
             frames_per_second=results.get('frames_per_second', 0),
-            result_data=results.get('frames', [])
+            result_data=frames_json
         )
         
         logger.info(f"Completed violence analysis for video {content_id}: {results.get('violent_frames', 0)}/{results.get('frames_analyzed', 0)} frames with violent content")

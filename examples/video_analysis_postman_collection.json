@@ -1,0 +1,500 @@
+{
+	"info": {
+		"_postman_id": "a8e7b5f0-5e5a-4e3c-8b3c-5e5a4e3c8b3c",
+		"name": "iGOT Video Analysis API",
+		"description": "A collection of API endpoints for the iGOT Video Analysis service, including both synchronous and asynchronous operations.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "General",
+			"item": [
+				{
+					"name": "Root Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Root endpoint of the API."
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Check the health status of the API."
+					},
+					"response": []
+				}
+			],
+			"description": "General endpoints for the API."
+		},
+		{
+			"name": "Synchronous Analysis",
+			"item": [
+				{
+					"name": "NSFW Check",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "video",
+									"type": "file",
+									"src": "/path/to/your/video.mp4",
+									"description": "Video file to analyze"
+								},
+								{
+									"key": "frame_interval",
+									"value": "30",
+									"description": "Process every Nth frame",
+									"type": "text"
+								},
+								{
+									"key": "confidence_threshold",
+									"value": "0.5",
+									"description": "Minimum confidence threshold (0-1)",
+									"type": "text"
+								},
+								{
+									"key": "resize_max_dimension",
+									"value": "480",
+									"description": "Resize larger frames to this max dimension",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis/nsfw-check",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis",
+								"nsfw-check"
+							]
+						},
+						"description": "Check a video for NSFW content."
+					},
+					"response": []
+				},
+				{
+					"name": "Violence Check",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "video",
+									"type": "file",
+									"src": "/path/to/your/video.mp4",
+									"description": "Video file to analyze"
+								},
+								{
+									"key": "frame_interval",
+									"value": "30",
+									"description": "Process every Nth frame",
+									"type": "text"
+								},
+								{
+									"key": "confidence_threshold",
+									"value": "0.5",
+									"description": "Minimum confidence threshold (0-1)",
+									"type": "text"
+								},
+								{
+									"key": "resize_max_dimension",
+									"value": "480",
+									"description": "Resize larger frames to this max dimension",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis/violence-check",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis",
+								"violence-check"
+							]
+						},
+						"description": "Check a video for violent content."
+					},
+					"response": []
+				},
+				{
+					"name": "Profanity Check",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "video",
+									"type": "file",
+									"src": "/path/to/your/video.mp4",
+									"description": "Video file to analyze"
+								},
+								{
+									"key": "check_audio",
+									"value": "true",
+									"description": "Whether to check audio for profanity",
+									"type": "text"
+								},
+								{
+									"key": "check_frames",
+									"value": "true",
+									"description": "Whether to check frames for text with profanity",
+									"type": "text"
+								},
+								{
+									"key": "frame_interval",
+									"value": "30",
+									"description": "Process every Nth frame",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis/profanity-check",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis",
+								"profanity-check"
+							]
+						},
+						"description": "Check a video for profanity in audio and text."
+					},
+					"response": []
+				},
+				{
+					"name": "Comprehensive Analysis",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "content_id",
+									"value": "video123",
+									"description": "Unique identifier for the content",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/your/video.mp4",
+									"description": "Video file to analyze"
+								},
+								{
+									"key": "frame_interval",
+									"value": "30",
+									"description": "Process every Nth frame",
+									"type": "text"
+								},
+								{
+									"key": "check_nsfw",
+									"value": "true",
+									"description": "Whether to check for NSFW content",
+									"type": "text"
+								},
+								{
+									"key": "check_violence",
+									"value": "true",
+									"description": "Whether to check for violent content",
+									"type": "text"
+								},
+								{
+									"key": "check_profanity",
+									"value": "true",
+									"description": "Whether to check for profanity",
+									"type": "text"
+								},
+								{
+									"key": "confidence_threshold",
+									"value": "0.5",
+									"description": "Minimum confidence threshold (0-1)",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis/analyze",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis",
+								"analyze"
+							]
+						},
+						"description": "Perform a comprehensive analysis of a video."
+					},
+					"response": []
+				}
+			],
+			"description": "Synchronous video analysis endpoints that process videos immediately and return results."
+		},
+		{
+			"name": "Asynchronous Analysis",
+			"item": [
+				{
+					"name": "Upload Video",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "content_id",
+									"value": "video123",
+									"description": "Unique identifier for the content",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/your/video.mp4",
+									"description": "Video file to analyze"
+								},
+								{
+									"key": "analyze",
+									"value": "true",
+									"description": "Whether to analyze the video after upload",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/upload",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"upload"
+							]
+						},
+						"description": "Upload a video for asynchronous analysis."
+					},
+					"response": []
+				},
+				{
+					"name": "Check Analysis Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/status/video123",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"status",
+								"video123"
+							]
+						},
+						"description": "Check the status of video analysis for a specific content ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Analysis Results",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/results/video123",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"results",
+								"video123"
+							]
+						},
+						"description": "Get the results of video analysis for a specific content ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Detailed Analysis Results",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/results/video123?include_details=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"results",
+								"video123"
+							],
+							"query": [
+								{
+									"key": "include_details",
+									"value": "true",
+									"description": "Whether to include detailed frame-by-frame results"
+								}
+							]
+						},
+						"description": "Get detailed results of video analysis for a specific content ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Trigger Analysis",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/analyze/video123",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"analyze",
+								"video123"
+							]
+						},
+						"description": "Trigger analysis for a previously uploaded video."
+					},
+					"response": []
+				},
+				{
+					"name": "Check API Health",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/video-analysis-async/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"video-analysis-async",
+								"health"
+							]
+						},
+						"description": "Check the health of the video analysis service."
+					},
+					"response": []
+				}
+			],
+			"description": "Asynchronous video analysis endpoints that queue videos for processing and allow checking status and results later."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000",
+			"type": "string",
+			"description": "Base URL for the API"
+		}
+	]
+}

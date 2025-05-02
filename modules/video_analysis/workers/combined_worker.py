@@ -2,6 +2,7 @@
 Worker for combining analysis results.
 """
 import logging
+import json
 from typing import Dict, Any, List
 
 from modules.video_analysis.database import db
@@ -134,6 +135,9 @@ def process_combined_analysis(message: Dict[str, Any]) -> bool:
         }
         
         # Update combined analysis
+        # Convert the result_data dictionary to a JSON string for database storage
+        result_data_json = json.dumps(result_data)
+        
         db.update_combined_analysis(
             analysis_id,
             'completed',
@@ -141,7 +145,7 @@ def process_combined_analysis(message: Dict[str, Any]) -> bool:
             inappropriate_frames=inappropriate_frames,
             total_frames_analyzed=total_frames_analyzed,
             inappropriate_percentage=inappropriate_percentage,
-            result_data=result_data
+            result_data=result_data_json
         )
         
         # Update video status to completed

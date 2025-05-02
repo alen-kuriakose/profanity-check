@@ -76,7 +76,7 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
         return True
         
     except Exception as e:
-        logger.exception(f"Error in profanity analysis for video {content_id}: {str(e)}")
+        logger.exception(f"Error in profanity analysis for video : {content_id}: {str(e)}")
         db.update_profanity_analysis(analysis_id, 'failed', error_message=str(e))
         return False
     

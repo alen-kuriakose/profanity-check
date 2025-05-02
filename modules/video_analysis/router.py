@@ -250,22 +250,82 @@ async def analyze_video(
                 flags.append({
                     "type": "explicit",
                     "confidence": result["nsfw"]["confidence"],
-                    "timestamp": result["timestamp_seconds"]
+                    "timestamp": result["timestamp_seconds"],
+                    "timestamp_formatted": result["timestamp_formatted"],
+                    "frame_number": result["frame_number"]
                 })
             if result["violence"]["detected"]:
                 flags.append({
                     "type": "violent",
                     "confidence": result["violence"]["confidence"],
-                    "timestamp": result["timestamp_seconds"]
+                    "timestamp": result["timestamp_seconds"],
+                    "timestamp_formatted": result["timestamp_formatted"],
+                    "frame_number": result["frame_number"]
                 })
             if result["profanity"]["detected"]:
                 flags.append({
                     "type": "profane",
                     "confidence": result["profanity"]["confidence"],
                     "timestamp": result["timestamp_seconds"],
+                    "timestamp_formatted": result["timestamp_formatted"],
+                    "frame_number": result["frame_number"],
                     "text": result["profanity"].get("text", "")
                 })
         
+        # Store results in the database for later retrieval
+        try:
+            # Import database module here to avoid circular imports
+            from modules.video_analysis.database import db
+            
+            # Check if video already exists in database
+            existing_video = db.get_video_by_content_id(content_id)
+            
+            if not existing_video:
+                # Save video metadata to database
+                with NamedTemporaryFile(delete=False, suffix=file.filename) as saved_file:
+                    file.file.seek(0)  # Reset file pointer
+                    shutil.copyfileobj(file.file, saved_file)
+                    saved_path = saved_file.name
+                
+                # Insert video record
+                video_id = db.insert_video(
+                    content_id=content_id,
+                    filename=file.filename,
+                    file_path=saved_path,
+                    file_size=os.path.getsize(saved_path),
+                    mime_type=file.content_type or "video/mp4",
+                    status="completed"
+                )
+                
+                # Insert combined analysis record
+                combined_id = db.insert_combined_analysis(video_id)
+                
+                # Update combined analysis with results
+                import json
+                result_data_json = json.dumps({
+                    "flags": flags,
+                    "detailed_results": frame_results,
+                    "summary": summary
+                })
+                
+                db.update_combined_analysis(
+                    analysis_id=combined_id,
+                    status="completed",
+                    content_rating=content_rating,
+                    inappropriate_frames=inappropriate_frames,
+                    total_frames_analyzed=processed_frames,
+                    inappropriate_percentage=(inappropriate_frames / processed_frames * 100) if processed_frames > 0 else 0,
+                    result_data=result_data_json
+                )
+                
+                logger.info(f"Stored synchronous analysis results in database for content_id: {content_id}")
+            else:
+                logger.info(f"Video with content_id {content_id} already exists in database, skipping storage")
+        except Exception as e:
+            logger.error(f"Failed to store synchronous analysis results in database: {e}")
+            # Continue even if database storage fails
+        
+        # Return results to client
         return {
             "content_id": content_id,
             "filename": file.filename,
@@ -291,53 +351,166 @@ def health():
     return {"status": "healthy"}
 
 @router.post("/profanity-check")
-async def video_profanity_check(file: UploadFile = File(...)):
+async def video_profanity_check(
+    file: UploadFile = File(...),
+    content_id: str = Form(None, description="Optional content ID for database storage"),
+    model_size: str = Form("tiny", description="Whisper model size (tiny, base, small, medium, large)"),
+    language: str = Form(None, description="Optional language code for transcription")
+):
+    """
+    Check a video for profanity in the audio track.
+    
+    This endpoint extracts audio from the video, transcribes it using Whisper,
+    and checks for profanity in the transcript.
+    
+    If a content_id is provided, the results will be stored in the database.
+    
+    Parameters:
+    - file: The video file to analyze
+    - content_id: Optional content ID for database storage
+    - model_size: Whisper model size (tiny, base, small, medium, large)
+    - language: Optional language code for transcription (auto-detected if not provided)
+    """
     # 1. Save uploaded video to a temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
         tmp.write(file.file.read())
         tmp_path = tmp.name
-
-    # 2. Extract audio using moviepy
-    audio_path = tmp_path.replace('.mp4', '.wav')
+    
+    logger.info(f"Processing video for profanity check: {file.filename}")
+    
     try:
-        video = VideoFileClip(tmp_path)
-        video.audio.write_audiofile(audio_path, logger=None)
+        # 2. Use the new implementation from profanity_check.py
+        from .profanity_check import check_audio_profanity
+        
+        # Process the video using the new function
+        result = check_audio_profanity(
+            video_path=tmp_path,
+            model_size=model_size,
+            language=language
+        )
+        print(result)
+        # Check for errors
+        if "error" in result:
+            return {"error": result["error"], "status": "failed"}
+        
+        # Extract key information from the result
+        has_profanity = result["has_profanity"]
+        transcript = result["transcript"]
+        timestamp_results = result["timestamp_results"]
+        
+        # 3. Store results in database if content_id is provided
+        if content_id:
+            try:
+                # Import database module here to avoid circular imports
+                from modules.video_analysis.database import db
+                
+                # Check if video already exists in database
+                existing_video = db.get_video_by_content_id(content_id)
+                
+                if not existing_video:
+                    # Save video metadata to database
+                    with NamedTemporaryFile(delete=False, suffix=file.filename) as saved_file:
+                        file.file.seek(0)  # Reset file pointer
+                        shutil.copyfileobj(file.file, saved_file)
+                        saved_path = saved_file.name
+                    
+                    # Insert video record
+                    video_id = db.insert_video(
+                        content_id=content_id,
+                        filename=file.filename,
+                        file_path=saved_path,
+                        file_size=os.path.getsize(saved_path),
+                        mime_type=file.content_type or "video/mp4",
+                        status="completed"
+                    )
+                    
+                    # Insert profanity analysis record
+                    profanity_id = db.insert_profanity_analysis(
+                        video_id=video_id,
+                        method="audio_transcription",
+                        has_profanity=has_profanity,
+                        profanity_frames=len(timestamp_results) if has_profanity else 0,
+                        frames_analyzed=1,
+                        max_profanity_confidence=result["confidence"] if has_profanity else 0.0,
+                        transcript=transcript,
+                        result_data={
+                            "profanity_details": timestamp_results,
+                            "segments_with_profanity": result.get("segments_with_profanity", []),
+                            "language": result.get("language", "en")
+                        }
+                    )
+                    
+                    # Insert combined analysis record
+                    combined_id = db.insert_combined_analysis(video_id)
+                    
+                    # Update combined analysis with results
+                    content_rating = "profane" if has_profanity else "safe"
+                    db.update_combined_analysis(
+                        analysis_id=combined_id,
+                        status="completed",
+                        content_rating=content_rating,
+                        inappropriate_frames=len(timestamp_results) if has_profanity else 0,
+                        total_frames=1,
+                        inappropriate_percentage=100.0 if has_profanity else 0.0,
+                        result_data={
+                            "flags": [
+                                {
+                                    "type": "profane",
+                                    "confidence": result["confidence"],
+                                    "timestamp": ts["timestamp"],
+                                    "timestamp_formatted": ts["timestamp_formatted"],
+                                    "frame_number": ts["frame_number"],
+                                    "text": ts["text"]
+                                } for ts in timestamp_results
+                            ],
+                            "detailed_results": timestamp_results,
+                            "summary": {
+                                "content_id": content_id,
+                                "filename": file.filename,
+                                "total_frames_analyzed": 1,
+                                "frames_with_inappropriate_content": len(timestamp_results) if has_profanity else 0,
+                                "inappropriate_percentage": 100.0 if has_profanity else 0.0,
+                                "profanity": {
+                                    "frames_detected": len(timestamp_results) if has_profanity else 0,
+                                    "percentage": 100.0 if has_profanity else 0.0,
+                                    "max_confidence": result["confidence"] if has_profanity else 0.0
+                                }
+                            }
+                        }
+                    )
+                    
+                    logger.info(f"Stored profanity analysis results in database for content_id: {content_id}")
+                else:
+                    logger.info(f"Video with content_id {content_id} already exists in database, skipping storage")
+            except Exception as e:
+                logger.error(f"Failed to store profanity analysis results in database: {e}")
+                # Continue even if database storage fails
+    
     except Exception as e:
-        os.remove(tmp_path)
-        return {"error": f"Failed to extract audio: {str(e)}"}
-
-    # 3. Transcribe audio using Whisper
-    try:
-        model = whisper.load_model("tiny")  # or "base"
-        result = model.transcribe(audio_path)
-        transcript = result['text']
-    except Exception as e:
-        os.remove(tmp_path)
-        os.remove(audio_path)
-        return {"error": f"Failed to transcribe audio: {str(e)}"}
-
-    # 4. Profanity check using better-profanity
-    try:
-        profanity.load_censor_words()
-        sensor_words= profanity.load_censor_words()
-        print(sensor_words)
-        has_profanity = profanity.contains_profanity(transcript)
-        confidence = calculate_profanity_confidence(transcript)
-        # confidence["transcript"] = transcript
-        # confidence["has_profanity"] = has_profanity
-        print(confidence)
-        # profanity_score = 1.0 if has_profanity else 0.0
-    except Exception as e:
-        os.remove(tmp_path)
-        os.remove(audio_path)
-        return {"error": f"Profanity check failed: {str(e)}"}
-
-    # 5. Clean up temp files
-    os.remove(tmp_path)
-    os.remove(audio_path)
-
-    # 6. Return results
-    return confidence
+        logger.exception(f"Error during profanity check: {str(e)}")
+        return {"error": f"Profanity check failed: {str(e)}", "status": "failed"}
+    finally:
+        # Clean up temp file
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception as e:
+            logger.warning(f"Could not delete temp file {tmp_path}: {str(e)}")
+    
+    # 4. Return results
+    return {
+        "content_id": content_id,
+        "filename": file.filename,
+        "has_profanity": result["has_profanity"],
+        "confidence": result["confidence"],
+        "transcript": result["transcript"],
+        "profanity_words": result.get("profanity_words", {}),
+        "timestamp_results": result["timestamp_results"],
+        "segments_with_profanity": result.get("segments_with_profanity", []),
+        "language": result.get("language", "en"),
+        "status": "processed",
+        "content_rating": result["content_rating"]
+    }
 
 @router.post("/video")
 async def check_profanity_in_video(

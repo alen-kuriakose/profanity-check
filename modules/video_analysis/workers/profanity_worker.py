@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from modules.video_analysis.database import db
 from modules.video_analysis.analysis import analyze_profanity
+from modules.video_analysis.analysis import check_audio_profanity
 
 logger = logging.getLogger(__name__)
 
@@ -44,23 +45,31 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
             return False
         
         # Analyze profanity content
-        results = analyze_profanity(file_path)
-        
+        # results = analyze_profanity(file_path)
+        results=check_audio_profanity(file_path)
         # Convert the result_data dictionary to a JSON string for database storage
+        print("results",results)
+        print("ocr_check",analyze_profanity(file_path))
         frames_json = json.dumps(results.get('frames', []))
+        has_profanity = results["has_profanity"]
+        transcript = results["transcript"]
+        timestamp_results = results["timestamp_results"]
         
-        # Update analysis with results
         db.update_profanity_analysis(
             analysis_id,
             'completed',
-            method=results.get('method', 'ocr_text_detection'),
-            has_profanity=results.get('has_profanity', False),
+            method=results.get('method', 'audio_transcription'),
+            has_profanity=has_profanity,
             profanity_frames=results.get('profanity_frames', 0),
-            frames_analyzed=results.get('frames_analyzed', 0),
-            max_profanity_confidence=results.get('max_profanity_confidence', 0.0),
+            frames_analyzed=len(timestamp_results) if has_profanity else 0,
+            max_profanity_confidence=results["confidence"] if has_profanity else 0.0,
             processing_time_seconds=results.get('processing_time_seconds', 0.0),
-            transcript=results.get('transcript', ''),
-            result_data=frames_json
+            transcript=transcript,
+            result_data=json.dumps({
+                "profanity_details": timestamp_results,
+                "segments_with_profanity": results.get("segments_with_profanity", []),
+                "language": results.get("language", "en")
+            })
         )
         
         logger.info(f"Completed profanity analysis for video {content_id}: found profanity in {results.get('profanity_frames', 0)}/{results.get('frames_analyzed', 0)} frames")
@@ -70,3 +79,6 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
         logger.exception(f"Error in profanity analysis for video {content_id}: {str(e)}")
         db.update_profanity_analysis(analysis_id, 'failed', error_message=str(e))
         return False
+    
+    
+

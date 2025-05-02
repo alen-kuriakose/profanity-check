@@ -4,6 +4,10 @@ from better_profanity import profanity
 import cv2
 import logging
 import os
+
+import whisper
+# Initialize Whisper model lazily
+_whisper_model = None
 def calculate_profanity_confidence(text):
         """
         Calculate a confidence score for profanity based on:
@@ -284,3 +288,21 @@ def cleanup_temp_file(file_path):
             os.remove(file_path)
     except Exception as e:
         logging.warning(f"Could not delete temp file {file_path}: {str(e)}")
+        
+def get_whisper_model(model_size: str = "tiny") -> whisper.Whisper:
+    """
+    Get or initialize the Whisper model.
+    
+    :param model_size: Size of the Whisper model to use ('tiny', 'base', 'small', 'medium', 'large')
+    :return: Initialized Whisper model
+    """
+    global _whisper_model
+    if _whisper_model is None:
+        try:
+            logging.info(f"Loading Whisper model: {model_size}")
+            _whisper_model = whisper.load_model(model_size)
+            logging.info(f"Whisper model {model_size} loaded successfully")
+        except Exception as e:
+            logging.error(f"Failed to load Whisper model: {str(e)}")
+            raise
+    return _whisper_model

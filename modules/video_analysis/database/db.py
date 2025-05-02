@@ -76,18 +76,44 @@ class DBContextManager:
         release_db_connection(self.conn)
 
 # Video operations
-def insert_video(content_id: str, filename: str, file_path: str, file_size: int, mime_type: str) -> int:
-    """Insert a new video record and return its ID."""
+def insert_video(content_id: str, filename: str, file_path: str, file_size: int, mime_type: str, status: str = "pending") -> int:
+    """
+    Insert a new video record and return its ID.
+    
+    Args:
+        content_id: Unique identifier for the video
+        filename: Original filename of the video
+        file_path: Path to the stored video file
+        file_size: Size of the video file in bytes
+        mime_type: MIME type of the video file
+        status: Status of the video processing (pending, processing, completed, failed)
+        
+    Returns:
+        The ID of the inserted video record
+    """
     with DBContextManager() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
-                INSERT INTO videos (content_id, filename, file_path, file_size, mime_type)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (content_id, filename, file_path, file_size, mime_type)
-            )
+            # If status is completed, set processing timestamps
+            if status == "completed":
+                now = datetime.now()
+                cur.execute(
+                    """
+                    INSERT INTO videos (content_id, filename, file_path, file_size, mime_type, status, 
+                                       processing_started_at, processing_completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (content_id, filename, file_path, file_size, mime_type, status, now, now)
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO videos (content_id, filename, file_path, file_size, mime_type, status)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (content_id, filename, file_path, file_size, mime_type, status)
+                )
             result = cur.fetchone()
             conn.commit()
             return result['id']
@@ -151,6 +177,30 @@ def get_pending_videos(limit: int = 10) -> List[Dict[str, Any]]:
                 LIMIT %s
                 """,
                 (limit,)
+            )
+            return cur.fetchall()
+
+def get_all_videos(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Get all videos with pagination, including combined analysis data.
+    
+    This function retrieves videos processed by both synchronous and asynchronous methods.
+    """
+    with DBContextManager() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT v.*, 
+                       c.content_rating, 
+                       c.inappropriate_frames, 
+                       c.total_frames_analyzed as total_frames,
+                       c.status as combined_status
+                FROM videos v
+                LEFT JOIN combined_analysis c ON v.id = c.video_id
+                ORDER BY v.upload_timestamp DESC
+                LIMIT %s OFFSET %s
+                """,
+                (limit, offset)
             )
             return cur.fetchall()
 
@@ -247,18 +297,59 @@ def update_violence_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             return cur.rowcount > 0
 
 # Profanity analysis operations
-def insert_profanity_analysis(video_id: int) -> int:
-    """Insert a new profanity analysis record and return its ID."""
+def insert_profanity_analysis(
+    video_id: int,
+    method: str = None,
+    has_profanity: bool = False,
+    profanity_frames: int = 0,
+    frames_analyzed: int = 0,
+    max_profanity_confidence: float = 0.0,
+    transcript: str = None,
+    result_data: Dict[str, Any] = None
+) -> int:
+    """
+    Insert a new profanity analysis record and return its ID.
+    
+    Args:
+        video_id: ID of the video
+        method: Method used for profanity detection (audio_transcription or ocr_text_detection)
+        has_profanity: Whether profanity was detected
+        profanity_frames: Number of frames with profanity
+        frames_analyzed: Total number of frames analyzed
+        max_profanity_confidence: Maximum confidence score for profanity detection
+        transcript: Transcript of the audio (if applicable)
+        result_data: Additional result data as JSON
+        
+    Returns:
+        ID of the inserted record
+    """
     with DBContextManager() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
-                INSERT INTO profanity_analysis (video_id)
-                VALUES (%s)
-                RETURNING id
-                """,
-                (video_id,)
-            )
+            # Build the SQL query dynamically based on the provided parameters
+            sql = """
+                INSERT INTO profanity_analysis (
+                    video_id, status, method, has_profanity, profanity_frames,
+                    frames_analyzed, max_profanity_confidence, completed_at
+            """
+            
+            params = [
+                video_id, 'completed', method, has_profanity, profanity_frames,
+                frames_analyzed, max_profanity_confidence, datetime.now()
+            ]
+            
+            # Add optional fields if provided
+            if transcript is not None:
+                sql += ", transcript"
+                params.append(transcript)
+            
+            if result_data is not None:
+                sql += ", result_data"
+                params.append(Json(result_data))
+            
+            # Complete the SQL query
+            sql += ") VALUES (" + ", ".join(["%s"] * len(params)) + ") RETURNING id"
+            
+            cur.execute(sql, params)
             result = cur.fetchone()
             conn.commit()
             return result['id']
@@ -338,9 +429,15 @@ def update_combined_analysis(analysis_id: int, status: str, **kwargs) -> bool:
 
 # Analysis status and results
 def get_analysis_status(video_id: int) -> Dict[str, Any]:
-    """Get the status of all analyses for a video."""
+    """
+    Get the status of all analyses for a video.
+    
+    This function retrieves analysis status for both asynchronously and 
+    synchronously processed videos.
+    """
     with DBContextManager() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # First, try to get status from the view
             cur.execute(
                 """
                 SELECT * FROM video_analysis_status
@@ -348,10 +445,39 @@ def get_analysis_status(video_id: int) -> Dict[str, Any]:
                 """,
                 (video_id,)
             )
-            return cur.fetchone() or {}
+            status = cur.fetchone() or {}
+            
+            # If the video status is completed but we don't have analysis statuses,
+            # check if we have a combined analysis record
+            if status.get("video_status") == "completed" and not status.get("combined_status"):
+                cur.execute(
+                    """
+                    SELECT * FROM combined_analysis
+                    WHERE video_id = %s
+                    """,
+                    (video_id,)
+                )
+                combined = cur.fetchone()
+                if combined:
+                    # Update status with combined analysis data
+                    status["combined_status"] = combined.get("status", "pending")
+                    status["content_rating"] = combined.get("content_rating")
+                    
+                    # For synchronously processed videos, set all statuses to completed
+                    if status["combined_status"] == "completed":
+                        status["nsfw_status"] = "completed"
+                        status["violence_status"] = "completed"
+                        status["profanity_status"] = "completed"
+            
+            return status
 
 def get_analysis_results(video_id: int) -> Dict[str, Any]:
-    """Get the results of all analyses for a video."""
+    """
+    Get the results of all analyses for a video.
+    
+    This function retrieves analysis results for both asynchronously and 
+    synchronously processed videos.
+    """
     with DBContextManager() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Get NSFW analysis
@@ -393,6 +519,18 @@ def get_analysis_results(video_id: int) -> Dict[str, Any]:
                 (video_id,)
             )
             combined_analysis = cur.fetchone()
+            
+            # Process result_data for combined analysis if it exists
+            if combined_analysis and 'result_data' in combined_analysis:
+                try:
+                    # If result_data is a string, try to parse it as JSON
+                    if isinstance(combined_analysis['result_data'], str):
+                        import json
+                        combined_analysis['result_data'] = json.loads(combined_analysis['result_data'])
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Error parsing result_data for video {video_id}: {e}")
             
             return {
                 "nsfw_analysis": nsfw_analysis,

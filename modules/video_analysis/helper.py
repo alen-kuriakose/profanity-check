@@ -6,6 +6,8 @@ import logging
 import os
 
 from ultralytics import YOLO
+
+from modules.video_analysis.nsfw_checker import detect_nudity_falconsai
 def calculate_profanity_confidence(text):
         """
         Calculate a confidence score for profanity based on:
@@ -311,9 +313,10 @@ def divide_video_to_frames(video_path):
 
     cap.release()
     detect_violence(output_folder)
-    print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    detect_nudity_falconsai(output_folder)
+    # print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
     
-
+from transformers import CLIPProcessor, CLIPModel
 model = YOLO('yolov8n.pt')
 clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
 clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
@@ -333,10 +336,13 @@ def detect_violence(frames_folder):
         frame_path = os.path.join(frames_folder, frame)
         preds = model(frame_path)
         
+        
         for pred in preds:
             labels = pred.names
+            print("violence label",labels)
             for cls_id in pred.boxes.cls:
                 label = labels[int(cls_id)]
+                print("violence label",label)
                 if label in ["fight", "weapon", "aggressive"]:  # example classes
                     timestamp = f"00:{str(i).zfill(2)}"  # Assuming 1 FPS
                     results.append({
@@ -347,3 +353,4 @@ def detect_violence(frames_folder):
                     
     print("results",results)
     return results 
+

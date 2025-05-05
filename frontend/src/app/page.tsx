@@ -33,7 +33,7 @@ export default function Home() {
       </header>
       
       <div className="container mx-auto py-8 px-4">
-        <div className="max-w-3xl mx-auto">
+        <div className=" mx-auto">
           <div className="text-center mb-8">
             <h2 className="text-2xl font-bold mb-2">Video Content Analysis</h2>
             <p className="text-muted-foreground">

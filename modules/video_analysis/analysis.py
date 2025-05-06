@@ -196,15 +196,17 @@ def analyze_profanity(video_path: str, method: str = "ocr_text_detection") -> Di
 def combine_analysis_results(
     nsfw_results: Dict[str, Any],
     violence_results: Dict[str, Any],
-    profanity_results: Dict[str, Any]
+    profanity_results: Dict[str, Any],
+    clip_results: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
     Combine results from different analyses.
     
     Args:
         nsfw_results: Results from NSFW analysis
-        violence_results: Results from violence analysis
+        violence_results: Results from CLIP-based violence analysis
         profanity_results: Results from profanity analysis
+        clip_results: Results from CLIP analysis (optional)
         
     Returns:
         Dict containing combined analysis results
@@ -228,6 +230,25 @@ def combine_analysis_results(
     # Calculate inappropriate percentage
     inappropriate_percentage = (inappropriate_frames / total_frames) * 100 if total_frames > 0 else 0
     
+    # Check for CLIP results
+    clip_frames = 0
+    clip_inappropriate = 0
+    clip_categories = []
+    
+    if clip_results:
+        clip_frames = clip_results.get("frames_analyzed", 0)
+        clip_inappropriate = clip_results.get("frames_with_issues", 0)
+        clip_categories = clip_results.get("categories_detected", [])
+        
+        # Update total frames if CLIP analyzed more
+        total_frames = max(total_frames, clip_frames)
+        
+        # Add CLIP inappropriate frames to total
+        inappropriate_frames += clip_inappropriate
+    
+    # Recalculate inappropriate percentage with CLIP results
+    inappropriate_percentage = (inappropriate_frames / total_frames) * 100 if total_frames > 0 else 0
+    
     # Determine content rating
     content_rating = "safe"
     if inappropriate_percentage > 20:
@@ -235,13 +256,25 @@ def combine_analysis_results(
     elif inappropriate_percentage > 10:
         content_rating = "questionable"
     
+    # Check for violence from CLIP-based detection
     if violence_inappropriate > 0 and violence_results.get("max_violence_confidence", 0) > 0.7:
         content_rating = "violent"
     
+    # Check for profanity
     if profanity_inappropriate > 0 and profanity_results.get("max_profanity_confidence", 0) > 0.7:
         content_rating = "profane"
     
-    return {
+    # Check for specific CLIP categories
+    if clip_categories:
+        if "hate_speech" in clip_categories:
+            content_rating = "hate_speech"
+        elif "self_harm" in clip_categories:
+            content_rating = "self_harm"
+        elif "drugs" in clip_categories:
+            content_rating = "drugs"
+    
+    # Build result dictionary
+    result = {
         "content_rating": content_rating,
         "inappropriate_frames": inappropriate_frames,
         "total_frames_analyzed": total_frames,
@@ -265,6 +298,17 @@ def combine_analysis_results(
             "max_profanity_confidence": profanity_results.get("max_profanity_confidence", 0)
         }
     }
+    
+    # Add CLIP results if available
+    if clip_results:
+        result["clip_results"] = {
+            "frames_analyzed": clip_frames,
+            "frames_with_issues": clip_inappropriate,
+            "categories_detected": clip_categories,
+            "category_counts": clip_results.get("category_counts", {})
+        }
+    
+    return result
     
     
 def check_audio_profanity(

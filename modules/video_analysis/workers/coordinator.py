@@ -10,6 +10,7 @@ from modules.video_analysis.kafka.producer import (
     send_nsfw_analysis_request,
     send_violence_analysis_request,
     send_profanity_analysis_request,
+    send_clip_analysis_request,
     send_combined_analysis_request
 )
 
@@ -55,7 +56,16 @@ def process_video_upload(message: Dict[str, Any]) -> bool:
         nsfw_analysis_id = db.insert_nsfw_analysis(video_id)
         violence_analysis_id = db.insert_violence_analysis(video_id)
         profanity_analysis_id = db.insert_profanity_analysis(video_id)
+        clip_analysis_id = db.insert_clip_analysis(video_id)
         combined_analysis_id = db.insert_combined_analysis(video_id)
+        
+        # Log analysis IDs
+        logger.info(f"Created analysis records for video {content_id}:")
+        logger.info(f"  - NSFW analysis ID: {nsfw_analysis_id}")
+        logger.info(f"  - Violence analysis ID: {violence_analysis_id}")
+        logger.info(f"  - Profanity analysis ID: {profanity_analysis_id}")
+        logger.info(f"  - CLIP analysis ID: {clip_analysis_id}")
+        logger.info(f"  - Combined analysis ID: {combined_analysis_id}")
         
         # Check if we should use direct processing
         if USE_DIRECT_PROCESSING:
@@ -65,7 +75,8 @@ def process_video_upload(message: Dict[str, Any]) -> bool:
                 file_path, 
                 nsfw_analysis_id, 
                 violence_analysis_id, 
-                profanity_analysis_id, 
+                profanity_analysis_id,
+                clip_analysis_id,
                 combined_analysis_id
             )
         else:
@@ -73,6 +84,7 @@ def process_video_upload(message: Dict[str, Any]) -> bool:
             send_nsfw_analysis_request(video_id, content_id, file_path, nsfw_analysis_id)
             send_violence_analysis_request(video_id, content_id, file_path, violence_analysis_id)
             send_profanity_analysis_request(video_id, content_id, file_path, profanity_analysis_id)
+            send_clip_analysis_request(video_id, content_id, file_path, clip_analysis_id)
             
             logger.info(f"Initiated analysis for video {content_id}")
             return True
@@ -88,7 +100,8 @@ def process_video_directly(
     file_path: str, 
     nsfw_analysis_id: int, 
     violence_analysis_id: int, 
-    profanity_analysis_id: int, 
+    profanity_analysis_id: int,
+    clip_analysis_id: int,
     combined_analysis_id: int
 ) -> bool:
     """
@@ -101,6 +114,7 @@ def process_video_directly(
         nsfw_analysis_id: The ID of the NSFW analysis record
         violence_analysis_id: The ID of the violence analysis record
         profanity_analysis_id: The ID of the profanity analysis record
+        clip_analysis_id: The ID of the CLIP analysis record
         combined_analysis_id: The ID of the combined analysis record
         
     Returns:
@@ -156,12 +170,38 @@ def process_video_directly(
             result_data=json.dumps(profanity_results.get("frames", []))
         )
         
+        # Process CLIP analysis
+        logger.info(f"Starting CLIP analysis for video {content_id}")
+        db.update_clip_analysis(clip_analysis_id, "processing")
+        
+        # Import CLIP analyzer dynamically to avoid circular imports
+        from modules.video_analysis.analysis.clip_analyzer import get_clip_analysis
+        clip_results = get_clip_analysis(file_path)
+        
+        # Update CLIP analysis results
+        db.update_clip_analysis(
+            clip_analysis_id,
+            "completed",
+            method="clip",
+            has_problematic_content=clip_results.get("has_problematic_content", False),
+            categories_detected=",".join(clip_results.get("categories_detected", [])),
+            frames_with_issues=clip_results.get("frames_with_issues", 0),
+            frames_analyzed=clip_results.get("frames_analyzed", 0),
+            processing_time_seconds=clip_results.get("processing_time_seconds", 0.0),
+            result_data=json.dumps({
+                "categories_detected": clip_results.get("categories_detected", []),
+                "category_counts": clip_results.get("category_counts", {}),
+                "frames": clip_results.get("frames", [])
+            })
+        )
+        
         # Combine results
         logger.info(f"Combining analysis results for video {content_id}")
         combined_results = combine_analysis_results(
             nsfw_results, 
             violence_results, 
-            profanity_results
+            profanity_results,
+            clip_results
         )
         db.update_combined_analysis(
             combined_analysis_id, 

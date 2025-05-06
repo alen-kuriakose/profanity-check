@@ -1,6 +1,6 @@
-# iGOT Video Analysis API - Postman Collection Guide
+# Video Analysis API - Postman Collection Guide
 
-This guide explains how to import and use the Postman collection for testing the iGOT Video Analysis API.
+This guide explains how to import and use the Postman collection for testing the Video Analysis API.
 
 ## Importing the Collection
 
@@ -15,7 +15,7 @@ The collection uses a variable `{{baseUrl}}` which is set to `http://localhost:8
 
 1. Click on "Environments" in the sidebar
 2. Click "Create Environment"
-3. Name it (e.g., "iGOT Video Analysis Local")
+3. Name it (e.g., "Video Analysis Local")
 4. Add a variable:
    - Variable: `baseUrl`
    - Initial Value: `http://localhost:8000` (or your custom URL)

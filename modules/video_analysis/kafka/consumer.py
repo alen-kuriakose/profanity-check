@@ -21,6 +21,7 @@ GROUP_ID_COORDINATOR = "video-analysis-coordinator"
 GROUP_ID_NSFW = "video-analysis-nsfw"
 GROUP_ID_VIOLENCE = "video-analysis-violence"
 GROUP_ID_PROFANITY = "video-analysis-profanity"
+GROUP_ID_CLIP = "video-analysis-clip"
 GROUP_ID_COMBINED = "video-analysis-combined"
 
 # Topic names (same as in producer.py)
@@ -28,6 +29,7 @@ TOPIC_VIDEO_UPLOADED = "video-analysis-uploaded"
 TOPIC_NSFW_ANALYSIS = "video-analysis-nsfw"
 TOPIC_VIOLENCE_ANALYSIS = "video-analysis-violence"
 TOPIC_PROFANITY_ANALYSIS = "video-analysis-profanity"
+TOPIC_CLIP_ANALYSIS = "video-analysis-clip"
 TOPIC_COMBINED_ANALYSIS = "video-analysis-combined"
 
 # Active consumers

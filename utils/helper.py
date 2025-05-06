@@ -315,18 +315,49 @@ import cv2
 
 
 def divide_video_to_frames(video_path):
-    base_dir = Path(__file__).resolve().parent / 'frames'
-    print (base_dir)
-    output_folder=base_dir / video_path.stem
-    os.makedirs(output_folder,exist_ok=True)
-    cap=cv2.VideoCapture(str(video_path))
-    fps= cap.get(cv2.CAP_PROP_FPS)
-    success , frame = cap.read()
-    count = 0
-    while success:
-        frame_file = os.path.join(output_folder,f"frame_{count:04d}.jpg")
-        cv2.imwrite(frame_file,frame)
-        count+=1
+    """
+    Divide a video into frames and save them to a directory.
+    
+    Args:
+        video_path: Path to the video file
         
+    Returns:
+        Path to the directory containing the frames
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    video_path_str = Path(video_path)
+    base_dir = Path(__file__).resolve().parent / 'frames'
+    logger.info(f"Frames directory: {base_dir}")
+    
+    output_folder = base_dir / video_path_str.stem
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Check if frames already exist
+    existing_frames = os.listdir(output_folder)
+    if existing_frames:
+        logger.info(f"Found {len(existing_frames)} existing frames in {output_folder}")
+        return output_folder
+    
+    # Extract frames
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    success, frame = cap.read()
+    count = 0
+    
+    while success:
+        frame_file = os.path.join(output_folder, f"frame_{count:04d}.jpg")
+        cv2.imwrite(frame_file, frame)
+        success, frame = cap.read()
+        count += 1
+        
+        # # Limit the number of frames to prevent excessive disk usage
+        # if count >= 1000:  # Maximum 1000 frames per video
+        #     logger.warning(f"Reached maximum frame limit (1000) for {video_path}")
+        #     break
+    
     cap.release()
-    print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    logger.info(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    
+    return output_folder

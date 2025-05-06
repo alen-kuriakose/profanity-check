@@ -109,6 +109,7 @@ TOPIC_VIDEO_UPLOADED = "video-analysis-uploaded"
 TOPIC_NSFW_ANALYSIS = "video-analysis-nsfw"
 TOPIC_VIOLENCE_ANALYSIS = "video-analysis-violence"
 TOPIC_PROFANITY_ANALYSIS = "video-analysis-profanity"
+TOPIC_CLIP_ANALYSIS = "video-analysis-clip"
 TOPIC_COMBINED_ANALYSIS = "video-analysis-combined"
 
 def send_video_uploaded_message(video_id: int, content_id: str, file_path: str):
@@ -156,6 +157,28 @@ def send_profanity_analysis_request(video_id: int, content_id: str, file_path: s
         "action": "analyze"
     }
     return send_message(TOPIC_PROFANITY_ANALYSIS, message, key=content_id)
+
+def send_clip_analysis_request(video_id: int, content_id: str, file_path: str, analysis_id: int):
+    """
+    Send a request for CLIP-based content analysis.
+    
+    Args:
+        video_id: Database ID of the video
+        content_id: Content ID of the video (user-facing ID)
+        file_path: Path to the video file
+        analysis_id: ID of the analysis record in the database
+        
+    Returns:
+        bool: True if the message was sent successfully
+    """
+    message = {
+        "video_id": video_id,
+        "content_id": content_id,
+        "file_path": file_path,
+        "analysis_id": analysis_id,
+        "action": "analyze"
+    }
+    return send_message(TOPIC_CLIP_ANALYSIS, message, key=content_id)
 
 def send_combined_analysis_request(video_id: int, content_id: str, analysis_id: int):
     """Send a request for combined analysis."""

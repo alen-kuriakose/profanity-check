@@ -296,25 +296,65 @@ import cv2
 
 
 def divide_video_to_frames(video_path):
-    video_path_str=Path(video_path)
+    """
+    Divide a video into frames and save them to a directory.
+    
+    Args:
+        video_path: Path to the video file
+        
+    Returns:
+        Path to the directory containing the frames
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    video_path_str = Path(video_path)
     base_dir = Path(__file__).resolve().parent / 'frames'
-    print (base_dir)
-    output_folder=base_dir / video_path_str.stem
-    os.makedirs(output_folder,exist_ok=True)
-    cap=cv2.VideoCapture(str(video_path))
-    fps= cap.get(cv2.CAP_PROP_FPS)
-    success , frame = cap.read()
+    logger.info(f"Frames directory: {base_dir}")
+    
+    output_folder = base_dir / video_path_str.stem
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Check if frames already exist
+    existing_frames = os.listdir(output_folder)
+    if existing_frames:
+        logger.info(f"Found {len(existing_frames)} existing frames in {output_folder}")
+        return output_folder
+    
+    # Extract frames
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    success, frame = cap.read()
     count = 0
+    
     while success:
-        frame_file = os.path.join(output_folder,f"frame_{count:04d}.jpg")
-        cv2.imwrite(frame_file,frame)
-        success,frame =cap.read()
-        count+=1
-
+        frame_file = os.path.join(output_folder, f"frame_{count:04d}.jpg")
+        cv2.imwrite(frame_file, frame)
+        success, frame = cap.read()
+        count += 1
+        
+        # # Limit the number of frames to prevent excessive disk usage
+        # if count >= 1000:  # Maximum 1000 frames per video
+        #     logger.warning(f"Reached maximum frame limit (1000) for {video_path}")
+        #     break
+    
     cap.release()
-    detect_violence(output_folder)
-    detect_nudity_falconsai(output_folder)
-    # print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    logger.info(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
+    
+    # Run analysis on the frames
+    try:
+        violence_results = detect_violence(output_folder)
+        logger.info(f"Violence detection found {len(violence_results)} violent frames")
+    except Exception as e:
+        logger.error(f"Error in violence detection: {str(e)}")
+    
+    try:
+        nudity_results = detect_nudity_falconsai(output_folder)
+        logger.info(f"Nudity detection found {len(nudity_results)} NSFW frames")
+    except Exception as e:
+        logger.error(f"Error in nudity detection: {str(e)}")
+    
+    return output_folder
     
 from transformers import CLIPProcessor, CLIPModel
 model = YOLO('yolov8n.pt')
@@ -329,28 +369,74 @@ clip_labels = [
     "a normal scene"
 ]
 def detect_violence(frames_folder):
+    """
+    Detect violence in frames using YOLO model.
+    
+    This function analyzes each frame in the specified folder for violent content
+    using a pre-trained YOLO model. It identifies objects and actions that may
+    indicate violence, such as weapons, fighting, etc.
+    
+    Args:
+        frames_folder: Path to the directory containing frames
+        
+    Returns:
+        List of dictionaries containing violence detection results, with each dictionary
+        containing the following keys:
+        - timestamp: Formatted timestamp (HH:MM:SS)
+        - frame: Filename of the frame
+        - label: Detected violent object or action
+        - score: Confidence score (0.0-1.0)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     results = []
     frames = sorted(os.listdir(frames_folder))
-
+    
+    # Define violence-related classes that YOLO can detect
+    violence_classes = [
+        "fight", "weapon", "aggressive", "knife", "gun", "pistol", "rifle", 
+        "sword", "baseball bat", "attack", "blood", "fire", "explosion"
+    ]
+    
+    logger.info(f"Analyzing {len(frames)} frames for violence in {frames_folder}")
+    
     for i, frame in enumerate(frames):
+        # Skip non-image files
+        if not (frame.endswith('.jpg') or frame.endswith('.png')):
+            continue
+            
         frame_path = os.path.join(frames_folder, frame)
-        preds = model(frame_path)
-        
-        
-        for pred in preds:
-            labels = pred.names
-            print("violence label",labels)
-            for cls_id in pred.boxes.cls:
-                label = labels[int(cls_id)]
-                print("violence label",label)
-                if label in ["fight", "weapon", "aggressive"]:  # example classes
-                    timestamp = f"00:{str(i).zfill(2)}"  # Assuming 1 FPS
-                    results.append({
-                        "timestamp": timestamp,
-                        "frame": frame,
-                        "label": label
-                    })
+        try:
+            # Run YOLO model on the frame
+            preds = model(frame_path)
+            
+            for pred in preds:
+                labels = pred.names
+                boxes = pred.boxes
+                
+                for j, cls_id in enumerate(boxes.cls):
+                    label = labels[int(cls_id)]
+                    confidence = float(boxes.conf[j]) if len(boxes.conf) > j else 0.0
                     
-    print("results",results)
-    return results 
+                    # Check if the label is related to violence
+                    if any(violent_class in label.lower() for violent_class in violence_classes):
+                        # Format timestamp as HH:MM:SS
+                        timestamp = f"00:{str(i//30).zfill(2)}:{str(i%30).zfill(2)}"
+                        
+                        # Add result to the list
+                        results.append({
+                            "timestamp": timestamp,
+                            "frame": frame,
+                            "label": label,
+                            "score": confidence
+                        })
+                        
+                        # Log the detection
+                        logger.info(f"Detected violence in frame {frame}: {label} with confidence {confidence:.2f}")
+        except Exception as e:
+            logger.error(f"Error analyzing frame {frame} for violence: {str(e)}")
+    
+    logger.info(f"Violence detection complete. Found {len(results)} violent frames")
+    return results
 

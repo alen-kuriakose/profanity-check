@@ -113,7 +113,12 @@ async def analyze_video(
         max_nsfw_confidence = 0.0
         max_violence_confidence = 0.0
         max_profanity_confidence = 0.0
+        
+        # Use the new divide_video_to_frames method to extract frames and run initial analysis
+        logger.info(f"Dividing video into frames for analysis: {tmp_path}")
         divide_video_to_frames(tmp_path)
+        
+        # Continue with frame-by-frame analysis
         for frame_num, timestamp, frame in extract_frames(tmp_path, frame_interval=frame_interval):
             
             # Resize frame for faster processing
@@ -204,6 +209,85 @@ async def analyze_video(
         
         # Calculate processing time
         processing_time = time.time() - processing_start
+        
+        # Get additional results from the frames directory
+        from pathlib import Path
+        video_path_str = Path(tmp_path)
+        base_dir = Path(os.path.dirname(os.path.abspath(__file__))) / 'frames'
+        output_folder = base_dir / video_path_str.stem
+        
+        # Check if we have additional results from the frame analysis
+        from .helper import detect_violence
+        from .nsfw_checker import detect_nudity_falconsai
+        
+        # Get additional violence results if available
+        try:
+            additional_violence_results = detect_violence(output_folder)
+            if additional_violence_results:
+                violent_frames += len(additional_violence_results)
+                # Add these results to frame_results
+                for result in additional_violence_results:
+                    if isinstance(result, dict):
+                        frame_num = int(result.get("frame", "frame_0000").split("_")[1].split(".")[0])
+                        timestamp = result.get("timestamp", "00:00")
+                        confidence = result.get("score", 0.85) if "score" in result else 0.85
+                        
+                        # Add to frame results if not already there
+                        frame_result = {
+                            "frame_number": frame_num,
+                            "timestamp_seconds": frame_num / 30.0,  # Approximate timestamp
+                            "timestamp_formatted": timestamp,
+                            "has_inappropriate_content": True,
+                            "nsfw": {"detected": False, "confidence": 0.0},
+                            "violence": {"detected": True, "confidence": confidence},
+                            "profanity": {"detected": False, "confidence": 0.0}
+                        }
+                        
+                        # Check if this frame is already in results
+                        if not any(r["frame_number"] == frame_num for r in frame_results):
+                            frame_results.append(frame_result)
+                            inappropriate_frames += 1
+                            
+                        # Update max confidence
+                        max_violence_confidence = max(max_violence_confidence, confidence)
+        except Exception as e:
+            logger.error(f"Error getting additional violence results: {str(e)}")
+        
+        # Get additional NSFW results if available
+        try:
+            additional_nsfw_results = detect_nudity_falconsai(output_folder)
+            if additional_nsfw_results:
+                nsfw_frames += len(additional_nsfw_results)
+                # Add these results to frame_results
+                for result in additional_nsfw_results:
+                    if isinstance(result, dict):
+                        frame_num = int(result.get("frame", "frame_0000").split("_")[1].split(".")[0])
+                        confidence = result.get("score", 0.0)
+                        
+                        # Add to frame results if not already there
+                        frame_result = {
+                            "frame_number": frame_num,
+                            "timestamp_seconds": frame_num / 30.0,  # Approximate timestamp
+                            "timestamp_formatted": format_timestamp(frame_num / 30.0),
+                            "has_inappropriate_content": True,
+                            "nsfw": {"detected": True, "confidence": confidence},
+                            "violence": {"detected": False, "confidence": 0.0},
+                            "profanity": {"detected": False, "confidence": 0.0}
+                        }
+                        
+                        # Check if this frame is already in results
+                        if not any(r["frame_number"] == frame_num for r in frame_results):
+                            frame_results.append(frame_result)
+                            inappropriate_frames += 1
+                            
+                        # Update max confidence
+                        max_nsfw_confidence = max(max_nsfw_confidence, confidence)
+        except Exception as e:
+            logger.error(f"Error getting additional NSFW results: {str(e)}")
+        
+        # Count total frames from the frames directory
+        total_frames = len(os.listdir(output_folder)) if os.path.exists(output_folder) else processed_frames
+        processed_frames = max(processed_frames, total_frames)
         
         # Generate summary statistics
         summary = {
@@ -330,8 +414,8 @@ async def analyze_video(
             logger.error(f"Failed to store synchronous analysis results in database: {e}")
             # Continue even if database storage fails
         
-        # Return results to client
-        return {
+        # Format results to match the expected frontend structure
+        formatted_results = {
             "content_id": content_id,
             "filename": file.filename,
             "flags": flags,
@@ -341,6 +425,31 @@ async def analyze_video(
             "detailed_results": frame_results,
             "model_info": "Using Hugging Face models for NSFW and violence detection"
         }
+        
+        # Ensure all frames have the required properties for the frontend
+        for frame in formatted_results["detailed_results"]:
+            # Ensure NSFW data is properly formatted
+            if "nsfw" not in frame or frame["nsfw"] is None:
+                frame["nsfw"] = {"detected": False, "confidence": 0.0}
+            elif isinstance(frame["nsfw"], dict) and "detected" not in frame["nsfw"]:
+                frame["nsfw"]["detected"] = frame["nsfw"].get("confidence", 0.0) > confidence_threshold
+            
+            # Ensure violence data is properly formatted
+            if "violence" not in frame or frame["violence"] is None:
+                frame["violence"] = {"detected": False, "confidence": 0.0}
+            elif isinstance(frame["violence"], dict) and "detected" not in frame["violence"]:
+                frame["violence"]["detected"] = frame["violence"].get("confidence", 0.0) > confidence_threshold
+            
+            # Ensure profanity data is properly formatted
+            if "profanity" not in frame or frame["profanity"] is None:
+                frame["profanity"] = {"detected": False, "confidence": 0.0, "text": ""}
+            elif isinstance(frame["profanity"], dict) and "detected" not in frame["profanity"]:
+                frame["profanity"]["detected"] = frame["profanity"].get("confidence", 0.0) > confidence_threshold
+                if "text" not in frame["profanity"]:
+                    frame["profanity"]["text"] = ""
+        
+        # Return formatted results to client
+        return formatted_results
         
     except Exception as e:
         logger.exception("Error processing video for comprehensive analysis")
@@ -393,7 +502,7 @@ async def video_profanity_check(
             model_size=model_size,
             language=language
         )
-        print(result)
+        # print(result)
         # Check for errors
         if "error" in result:
             return {"error": result["error"], "status": "failed"}

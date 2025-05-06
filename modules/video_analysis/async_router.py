@@ -410,6 +410,7 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
         
         # Prepare response
         try:
+            # Format the response to match the expected frontend structure
             response = {
                 "content_id": content_id,
                 "filename": video["filename"],
@@ -443,6 +444,28 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
                 "detailed_results": detailed_results,
                 "model_info": "Content Analysis Model v1.0"
             }
+            
+            # Ensure all frames have the required properties for the frontend
+            for frame in response["detailed_results"]:
+                # Ensure NSFW data is properly formatted
+                if "nsfw" not in frame or frame["nsfw"] is None:
+                    frame["nsfw"] = {"detected": False, "confidence": 0.0}
+                elif isinstance(frame["nsfw"], dict) and "detected" not in frame["nsfw"]:
+                    frame["nsfw"]["detected"] = frame["nsfw"].get("confidence", 0.0) > 0.5
+                
+                # Ensure violence data is properly formatted
+                if "violence" not in frame or frame["violence"] is None:
+                    frame["violence"] = {"detected": False, "confidence": 0.0}
+                elif isinstance(frame["violence"], dict) and "detected" not in frame["violence"]:
+                    frame["violence"]["detected"] = frame["violence"].get("confidence", 0.0) > 0.5
+                
+                # Ensure profanity data is properly formatted
+                if "profanity" not in frame or frame["profanity"] is None:
+                    frame["profanity"] = {"detected": False, "confidence": 0.0, "text": ""}
+                elif isinstance(frame["profanity"], dict) and "detected" not in frame["profanity"]:
+                    frame["profanity"]["detected"] = frame["profanity"].get("confidence", 0.0) > 0.5
+                    if "text" not in frame["profanity"]:
+                        frame["profanity"]["text"] = ""
         except (ValueError, TypeError) as e:
             logger.warning(f"Error preparing response: {e}")
             # Provide a fallback response with default values

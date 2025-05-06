@@ -4,10 +4,14 @@ Worker for NSFW content analysis.
 import os
 import logging
 import json
+import time
 from typing import Dict, Any
+from pathlib import Path
 
 from modules.video_analysis.database import db
 from modules.video_analysis.analysis import analyze_nsfw_content
+from modules.video_analysis.helper import divide_video_to_frames
+from modules.video_analysis.nsfw_checker import detect_nudity_falconsai
 
 logger = logging.getLogger(__name__)
 
@@ -42,26 +46,66 @@ def process_nsfw_analysis(message: Dict[str, Any]) -> bool:
             db.update_nsfw_analysis(analysis_id, 'failed', error_message="Video file not found")
             return False
         
-        # Analyze NSFW content
-        results = analyze_nsfw_content(file_path)
+        start_time = time.time()
         
-        # Update analysis with results
+        # Check if frames already exist from profanity or violence analysis
+        video_path_str = Path(file_path)
+        base_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'frames'
+        output_folder = base_dir / video_path_str.stem
+        
+        if not os.path.exists(output_folder):
+            # If frames don't exist, create them
+            logger.info(f"Dividing video into frames for NSFW analysis: {file_path}")
+            divide_video_to_frames(file_path)
+        
+        # Analyze NSFW content using FalconSAI
+        nsfw_results = detect_nudity_falconsai(output_folder)
+        
+        # Count frames and NSFW frames
+        frames_analyzed = len(os.listdir(output_folder))
+        nsfw_frames = len(nsfw_results)
+        nsfw_percentage = (nsfw_frames / frames_analyzed) * 100 if frames_analyzed > 0 else 0
+        
+        # Calculate max confidence
+        max_nsfw_confidence = 0.0
+        if nsfw_results:
+            for result in nsfw_results:
+                if isinstance(result, dict) and 'score' in result:
+                    max_nsfw_confidence = max(max_nsfw_confidence, result['score'])
+        
+        processing_time = time.time() - start_time
+        
+        # Format results for database storage
+        formatted_results = []
+        for result in nsfw_results:
+            if isinstance(result, dict):
+                formatted_results.append({
+                    "frame_number": int(result.get("frame", "frame_0000").split("_")[1].split(".")[0]),
+                    "timestamp": result.get("timestamp", "00:00"),
+                    "is_nsfw": True,
+                    "confidence": result.get("score", 0.0),
+                    "categories": {
+                        "nsfw": result.get("score", 0.0),
+                        "explicit": result.get("score", 0.0) if result.get("label") == "nsfw" else 0.0
+                    }
+                })
+        
         # Convert the frames list to a JSON string for database storage
-        frames_json = json.dumps(results.get('frames', []))
+        frames_json = json.dumps(formatted_results)
         
         db.update_nsfw_analysis(
             analysis_id,
             'completed',
-            frames_analyzed=results.get('frames_analyzed', 0),
-            nsfw_frames=results.get('nsfw_frames', 0),
-            nsfw_percentage=results.get('nsfw_percentage', 0),
-            max_nsfw_confidence=results.get('max_nsfw_confidence', 0),
-            processing_time_seconds=results.get('processing_time_seconds', 0),
-            frames_per_second=results.get('frames_per_second', 0),
+            frames_analyzed=frames_analyzed,
+            nsfw_frames=nsfw_frames,
+            nsfw_percentage=nsfw_percentage,
+            max_nsfw_confidence=max_nsfw_confidence,
+            processing_time_seconds=processing_time,
+            frames_per_second=frames_analyzed / processing_time if processing_time > 0 else 0,
             result_data=frames_json
         )
         
-        logger.info(f"Completed NSFW analysis for video {content_id}: {results.get('nsfw_frames', 0)}/{results.get('frames_analyzed', 0)} frames with NSFW content")
+        logger.info(f"Completed NSFW analysis for video {content_id}: {nsfw_frames}/{frames_analyzed} frames with NSFW content")
         return True
         
     except Exception as e:

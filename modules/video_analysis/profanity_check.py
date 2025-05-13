@@ -177,7 +177,10 @@ def check_audio_profanity(
         for segment in result.get('segments', []):
             segment_text = segment.get('text', '').strip()
             if segment_text and profanity.contains_profanity(segment_text):
-                segment_confidence = calculate_profanity_confidence(segment_text)[0]
+                # Get confidence score and ensure it's a simple float
+                confidence_result = calculate_profanity_confidence(segment_text)
+                segment_confidence = float(confidence_result[0])
+                
                 start_time = segment.get('start', 0)
                 end_time = segment.get('end', start_time + 1)
                 
@@ -195,16 +198,28 @@ def check_audio_profanity(
                     "timestamp_formatted": format_timestamp(start_time),
                     "frame_number": int(start_time * 30),  # Approximate frame number at 30fps
                     "has_profanity": True,
-                    "confidence": segment_confidence,
+                    "confidence": float(segment_confidence),  # Ensure it's a simple float
                     "text": segment_text
                 })
         
         # 5. Prepare final result
+        # Make sure detected_words is serializable
+        detected_words = confidence_result[1].get("detected_words", {})
+        serializable_detected_words = {}
+        
+        # Convert any non-serializable values to strings
+        if detected_words:
+            for word, value in detected_words.items():
+                if callable(value) or not isinstance(value, (str, int, float, bool, type(None))):
+                    serializable_detected_words[word] = str(value)
+                else:
+                    serializable_detected_words[word] = value
+        
         final_result = {
             "transcript": transcript,
             "has_profanity": has_profanity,
             "confidence": confidence_result[0],
-            "profanity_words": confidence_result[1].get("detected_words", {}),
+            "profanity_words": serializable_detected_words,
             "timestamp_results": timestamp_results,
             "segments_with_profanity": segments_with_profanity,
             "language": result.get('language'),

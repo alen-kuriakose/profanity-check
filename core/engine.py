@@ -8,8 +8,6 @@ async def upload_content(
     content_type: str = Form(...),
     file: UploadFile = File(...)
 ):
-    # In real system: save file, create DB entry, dispatch to modules
-    # For POC: just return info
     settings = get_settings()
     enabled_modules = [k for k, v in settings.modules.items() if v.get("enabled")]
     return {

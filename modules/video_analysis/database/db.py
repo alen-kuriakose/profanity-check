@@ -342,15 +342,33 @@ def insert_profanity_analysis(
                 sql += ", transcript"
                 params.append(transcript)
             
-            if result_data is not None:
-                sql += ", result_data"
-                params.append(Json(result_data))
-            
-            # Complete the SQL query
+            # Complete the SQL query (without result_data for now)
             sql += ") VALUES (" + ", ".join(["%s"] * len(params)) + ") RETURNING id"
             
             cur.execute(sql, params)
             result = cur.fetchone()
+            
+            # Handle result_data separately if provided
+            if result_data is not None:
+                try:
+                    # If result_data is a string, assume it's already JSON
+                    if isinstance(result_data, str):
+                        json_str = result_data
+                    else:
+                        # Otherwise, convert to JSON string
+                        import json
+                        json_str = json.dumps(result_data)
+                    
+                    # Update the result_data field
+                    cur.execute(
+                        "UPDATE profanity_analysis SET result_data = %s::jsonb WHERE id = %s",
+                        (json_str, result['id'])
+                    )
+                except Exception as e:
+                    import logging
+                    logging.error(f"Error updating result_data for profanity analysis: {e}")
+                    # Continue even if this fails
+            
             conn.commit()
             return result['id']
 
@@ -358,6 +376,9 @@ def update_profanity_analysis(analysis_id: int, status: str, **kwargs) -> bool:
     """Update a profanity analysis record."""
     with DBContextManager() as conn:
         with conn.cursor() as cur:
+            # Extract result_data if present to handle separately
+            result_data = kwargs.pop('result_data', None)
+            
             # Build the SQL query dynamically based on the provided kwargs
             sql = "UPDATE profanity_analysis SET status = %s"
             params = [status]
@@ -369,10 +390,7 @@ def update_profanity_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             
             # Add additional fields from kwargs
             for key, value in kwargs.items():
-                if key == 'result_data':
-                    sql += f", {key} = %s::jsonb"
-                else:
-                    sql += f", {key} = %s"
+                sql += f", {key} = %s"
                 params.append(value)
             
             # Add the WHERE clause
@@ -380,6 +398,28 @@ def update_profanity_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             params.append(analysis_id)
             
             cur.execute(sql, params)
+            
+            # Handle result_data separately if provided
+            if result_data is not None:
+                try:
+                    # If result_data is a string, assume it's already JSON
+                    if isinstance(result_data, str):
+                        json_str = result_data
+                    else:
+                        # Otherwise, convert to JSON string
+                        import json
+                        json_str = json.dumps(result_data)
+                    
+                    # Update the result_data field
+                    cur.execute(
+                        "UPDATE profanity_analysis SET result_data = %s::jsonb WHERE id = %s",
+                        (json_str, analysis_id)
+                    )
+                except Exception as e:
+                    import logging
+                    logging.error(f"Error updating result_data for profanity analysis: {e}")
+                    # Continue even if this fails
+            
             conn.commit()
             return cur.rowcount > 0
 
@@ -404,6 +444,9 @@ def update_combined_analysis(analysis_id: int, status: str, **kwargs) -> bool:
     """Update a combined analysis record."""
     with DBContextManager() as conn:
         with conn.cursor() as cur:
+            # Extract result_data if present to handle separately
+            result_data = kwargs.pop('result_data', None)
+            
             # Build the SQL query dynamically based on the provided kwargs
             sql = "UPDATE combined_analysis SET status = %s"
             params = [status]
@@ -413,10 +456,7 @@ def update_combined_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             
             # Add additional fields from kwargs
             for key, value in kwargs.items():
-                if key == 'result_data':
-                    sql += f", {key} = %s::jsonb"
-                else:
-                    sql += f", {key} = %s"
+                sql += f", {key} = %s"
                 params.append(value)
             
             # Add the WHERE clause
@@ -424,6 +464,28 @@ def update_combined_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             params.append(analysis_id)
             
             cur.execute(sql, params)
+            
+            # Handle result_data separately if provided
+            if result_data is not None:
+                try:
+                    # If result_data is a string, assume it's already JSON
+                    if isinstance(result_data, str):
+                        json_str = result_data
+                    else:
+                        # Otherwise, convert to JSON string
+                        import json
+                        json_str = json.dumps(result_data)
+                    
+                    # Update the result_data field
+                    cur.execute(
+                        "UPDATE combined_analysis SET result_data = %s::jsonb WHERE id = %s",
+                        (json_str, analysis_id)
+                    )
+                except Exception as e:
+                    import logging
+                    logging.error(f"Error updating result_data: {e}")
+                    # Continue even if this fails
+            
             conn.commit()
             return cur.rowcount > 0
 

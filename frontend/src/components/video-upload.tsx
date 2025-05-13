@@ -312,7 +312,7 @@ export function VideoUpload({ onAnalysisComplete }: VideoUploadProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6  ">
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-6">
+        <form onSubmit={handleSubmit} className="md:grid md:grid-cols-2 gap-6">
           <div className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="content-id" className="text-base font-medium">

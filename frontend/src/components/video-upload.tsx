@@ -187,7 +187,50 @@ export function VideoUpload({ onAnalysisComplete }: VideoUploadProps) {
             })
           );
         }
-      } else {
+      } 
+      // If only NSFW check is enabled, use the dedicated NSFW endpoint
+      else if (checkNsfw && !checkProfanity && !checkViolence) {
+        console.log("Using dedicated NSFW check endpoint");
+        const nsfwResult = await videoAnalysisApi.checkNsfw(file, {
+          frameInterval,
+          confidenceThreshold,
+          resizeMaxDimension: 480, // Default value
+        });
+        
+        // Format the result to match the expected structure
+        result = {
+          content_id: contentId,
+          filename: file.name,
+          status: "completed",
+          content_rating: nsfwResult.result === 200 ? "safe" : "explicit",
+          summary: {
+            content_id: contentId,
+            filename: file.name,
+            total_frames_analyzed: 0,
+            frames_with_inappropriate_content: 0,
+            inappropriate_percentage: 0,
+            nsfw: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            violence: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            profanity: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            processing_time_seconds: 0,
+            frames_per_second: 0,
+          },
+          detailed_results: []
+        };
+      } 
+      else {
         // Use the comprehensive analysis endpoint
         result = await videoAnalysisApi.analyzeVideo(file, contentId, {
           frameInterval,

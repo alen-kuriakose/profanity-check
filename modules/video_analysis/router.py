@@ -10,12 +10,14 @@ from moviepy import VideoFileClip, TextClip, CompositeVideoClip
 import whisper
 from better_profanity import profanity
 
-from .helper import calculate_profanity_confidence, cleanup_temp_file, format_timestamp, get_recommended_preprocessing, preprocess_frame,divide_video_to_frames
+from modules.video_analysis.nsfw_checker import analyse_smol_vlm
+
+from .helper import calculate_profanity_confidence, cleanup_temp_file, format_timestamp, get_recommended_preprocessing, preprocess_frame, divide_video_to_frames
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from tempfile import NamedTemporaryFile
 import shutil
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Any
 import logging
 from .video_processing import extract_frames
 from .profanity_check import find_profanity_in_frame
@@ -72,13 +74,20 @@ async def analyze_video(
     frame_interval: int = Form(30, description="Process every Nth frame"),
     check_nsfw: bool = Form(True, description="Check for NSFW content"),
     check_violence: bool = Form(True, description="Check for violent content"),
-    check_profanity: bool = Form(True, description="Check for profanity in text"),
+    check_profanity: bool = Form(True, description="Check for profanity in audio"),
+    model_size: str = Form("tiny", description="Whisper model size for audio transcription"),
+    language: Optional[str] = Form(None, description="Language code for audio transcription"),
     confidence_threshold: float = Form(0.5, description="Minimum confidence threshold for detection")
 ):
     """
-    Comprehensive video analysis endpoint that combines NSFW, violence, and profanity detection.
+    Comprehensive video analysis endpoint that combines NSFW, violence, and audio profanity detection.
     
-    Returns detailed results including timestamps and confidence scores for all detected issues.
+    This endpoint analyzes video content for:
+    1. NSFW visual content
+    2. Violent visual content
+    3. Profanity in audio using speech-to-text and profanity detection
+    
+    Returns detailed results including timestamps, transcripts, and confidence scores for all detected issues.
     """
     settings = get_settings()
     mod_conf = settings.modules.get("video_analysis", {})
@@ -113,7 +122,7 @@ async def analyze_video(
         max_nsfw_confidence = 0.0
         max_violence_confidence = 0.0
         max_profanity_confidence = 0.0
-        divide_video_to_frames(tmp_path)
+        # divide_video_to_frames(tmp_path)
         for frame_num, timestamp, frame in extract_frames(tmp_path, frame_interval=frame_interval):
             
             # Resize frame for faster processing
@@ -157,39 +166,7 @@ async def analyze_video(
                         violent_frames += 1
                         max_violence_confidence = max(max_violence_confidence, content_analysis["violence"]["confidence"])
                 
-                # Check for profanity in text if requested
-                if check_profanity:
-                    # First enhance the frame for text detection
-                    enhanced_frame = enhance_frame_for_text_detection(frame)
-                    
-                    # Try PaddleOCR first (more accurate)
-                    profanity_result = find_profanity_with_paddle(
-                        frame,  # Use original frame for PaddleOCR
-                        min_confidence=0.2  # Lower threshold for text detection
-                    )
-                    
-                    # If PaddleOCR didn't find any text, fall back to Tesseract
-                    if not profanity_result.get('text'):
-                        profanity_result = find_profanity_in_frame(
-                            enhanced_frame,  # Use enhanced frame for Tesseract
-                            min_confidence=20.0,  # Different scale (0-100)
-                            ocr_config='--oem 3 --psm 11 -l eng --dpi 300'
-                        )
-                    
-                    # Update frame result with profanity analysis
-                    has_profanity = profanity_result.get('contains_profanity', False)
-                    profanity_confidence = profanity_result.get('profanity_confidence', 0.0)
-                    
-                    frame_result["profanity"] = {
-                        "detected": has_profanity,
-                        "confidence": profanity_confidence,
-                        "text": profanity_result.get('text', '')
-                    }
-                    
-                    if has_profanity:
-                        profanity_frames += 1
-                        max_profanity_confidence = max(max_profanity_confidence, profanity_confidence)
-                        frame_result["has_inappropriate_content"] = True
+                # We'll handle audio profanity check separately after frame processing
                 
                 # Add frame result to results list if it has inappropriate content
                 if frame_result["has_inappropriate_content"]:
@@ -201,6 +178,70 @@ async def analyze_video(
             except Exception as e:
                 logger.error(f"Error processing frame {frame_num}: {str(e)}")
                 # Continue with next frame
+        
+        # Check for audio profanity
+        audio_profanity_results = None
+        audio_profanity_segments = []
+        audio_has_profanity = False
+        audio_profanity_confidence = 0.0
+        
+        if check_profanity:
+            try:
+                # Import the function here to avoid circular imports
+                from .analysis import check_audio_profanity
+                
+                logger.info(f"Checking audio for profanity using Whisper model: {model_size}")
+                audio_profanity_results = check_audio_profanity(
+                    video_path=tmp_path,
+                    model_size=model_size,
+                    language=language
+                )
+                
+                # Extract key information from the results
+                audio_has_profanity = audio_profanity_results.get("has_profanity", False)
+                audio_profanity_confidence = audio_profanity_results.get("confidence", 0.0)
+                audio_profanity_segments = audio_profanity_results.get("timestamp_results", [])
+                
+                # Update profanity counters based on audio results
+                if audio_has_profanity:
+                    # Count each segment with profanity as a "frame" for consistency
+                    profanity_frames = len(audio_profanity_segments)
+                    
+                    # Update max confidence
+                    max_profanity_confidence = audio_profanity_confidence
+                    
+                    # Mark content as inappropriate if it has audio profanity
+                    inappropriate_frames += len(audio_profanity_segments)
+                    
+                    # Add audio profanity segments to frame_results
+                    for segment in audio_profanity_segments:
+                        frame_num = segment.get("frame_number", 0)
+                        timestamp = segment.get("timestamp", 0.0)
+                        confidence = segment.get("confidence", 0.0)
+                        text = segment.get("text", "")
+                        
+                        frame_result = {
+                            "frame_number": frame_num,
+                            "timestamp_seconds": timestamp,
+                            "timestamp_formatted": format_timestamp(timestamp),
+                            "has_inappropriate_content": True,
+                            "nsfw": {"detected": False, "confidence": 0.0},
+                            "violence": {"detected": False, "confidence": 0.0},
+                            "profanity": {
+                                "detected": True,
+                                "confidence": confidence,
+                                "text": text,
+                                "source": "audio"
+                            }
+                        }
+                        
+                        frame_results.append(frame_result)
+                    
+                    logger.info(f"Audio profanity detected with confidence {audio_profanity_confidence}")
+                    logger.info(f"Found {len(audio_profanity_segments)} segments with profanity")
+            except Exception as e:
+                logger.error(f"Error during audio profanity check: {str(e)}")
+                # Continue with other analyses even if audio check fails
         
         # Calculate processing time
         processing_time = time.time() - processing_start
@@ -223,9 +264,11 @@ async def analyze_video(
                 "max_confidence": max_violence_confidence
             },
             "profanity": {
-                "frames_detected": profanity_frames,
+                "segments_detected": profanity_frames,
                 "percentage": (profanity_frames / processed_frames * 100) if processed_frames else 0,
-                "max_confidence": max_profanity_confidence
+                "max_confidence": max_profanity_confidence,
+                "has_profanity": audio_has_profanity,
+                "transcript_available": audio_profanity_results is not None
             },
             "processing_time_seconds": processing_time,
             "frames_per_second": processed_frames / processing_time if processing_time > 0 else 0
@@ -237,7 +280,7 @@ async def analyze_video(
                 content_rating = "explicit"
             elif (violent_frames / processed_frames > 0.1) or max_violence_confidence > 0.8:
                 content_rating = "violent"
-            elif profanity_frames > 0:
+            elif audio_has_profanity:
                 content_rating = "profane"
             else:
                 content_rating = "questionable"
@@ -248,7 +291,7 @@ async def analyze_video(
         
         logger.info(f"Completed comprehensive analysis: {processed_frames} frames, {inappropriate_frames} with inappropriate content")
         
-        # Create flags for the response (similar to the original dummy response)
+        # Create flags for the response
         flags = []
         for result in frame_results:
             if result["nsfw"]["detected"]:
@@ -274,7 +317,8 @@ async def analyze_video(
                     "timestamp": result["timestamp_seconds"],
                     "timestamp_formatted": result["timestamp_formatted"],
                     "frame_number": result["frame_number"],
-                    "text": result["profanity"].get("text", "")
+                    "text": result["profanity"].get("text", ""),
+                    "source": "audio"
                 })
         
         # Store results in the database for later retrieval
@@ -331,7 +375,7 @@ async def analyze_video(
             # Continue even if database storage fails
         
         # Return results to client
-        return {
+        response = {
             "content_id": content_id,
             "filename": file.filename,
             "flags": flags,
@@ -341,6 +385,16 @@ async def analyze_video(
             "detailed_results": frame_results,
             "model_info": "Using Hugging Face models for NSFW and violence detection"
         }
+        
+        # Add audio transcript if available
+        if audio_profanity_results and "transcript" in audio_profanity_results:
+            response["transcript"] = {
+                "text": audio_profanity_results["transcript"],
+                "language": audio_profanity_results.get("language", "en"),
+                "segments": audio_profanity_results.get("segments_with_profanity", [])
+            }
+            
+        return response
         
     except Exception as e:
         logger.exception("Error processing video for comprehensive analysis")
@@ -866,17 +920,118 @@ async def check_nsfw_in_video(
     - nsfw: Content that is not safe for work
     - neutral: Safe content
     """
-    # Check if Hugging Face models are available
-    use_mock_implementation = not hf_models_available
-    if use_mock_implementation:
-        logger.warning("Using mock NSFW detection implementation as the Hugging Face models are not available")
-        # We'll continue with a mock implementation instead of raising an exception
+    # # Check if Hugging Face models are available
+    # use_mock_implementation = not hf_models_available
+    # if use_mock_implementation:
+    #     logger.warning("Using mock NSFW detection implementation as the Hugging Face models are not available")
+    #     # We'll continue with a mock implementation instead of raising an exception
         
-    # Accept any video format for testing purposes
-    # In production, you might want to restrict to specific formats
-    logger.info(f"Processing video with content type: {video.content_type}, filename: {video.filename}")
-    # We'll try to process any video format
+    # # Accept any video format for testing purposes
+    # # In production, you might want to restrict to specific formats
+    # logger.info(f"Processing video with content type: {video.content_type}, filename: {video.filename}")
+    # # We'll try to process any video format
 
+    # tmp_path = None
+    # processing_start = time.time()
+    
+    # try:
+    #     # Save uploaded video to temp file
+    #     with NamedTemporaryFile(delete=False, suffix=video.filename) as tmp:
+    #         shutil.copyfileobj(video.file, tmp)
+    #         tmp_path = tmp.name
+            
+    #     logger.info(f"Processing video for NSFW content: {video.filename}")
+        
+    #     # Process frames
+    #     frame_results = []
+    #     nsfw_frames = 0
+    #     processed_frames = 0
+    #     nsfw_categories = {
+    #         "nsfw": 0,
+    #         "neutral": 0
+    #     }
+    #     max_nsfw_confidence = 0.0
+        
+    #     for frame_num, timestamp, frame in extract_frames(tmp_path, frame_interval=frame_interval):
+    #         # Resize frame for faster processing if needed
+    #         height, width = frame.shape[:2]
+    #         if max(height, width) > resize_max_dimension:
+    #             scale = resize_max_dimension / max(height, width)
+    #             new_size = (int(width * scale), int(height * scale))
+    #             frame = cv2.resize(frame, new_size)
+            
+    #         try:
+    #             # Predict NSFW content
+    #             if use_mock_implementation:
+    #                 # Mock implementation for testing when model is not available
+    #                 import random
+    #                 # Generate random predictions for demonstration purposes
+    #                 frame_prediction = {
+    #                     "nsfw": random.uniform(0, 0.3),
+    #                     "neutral": random.uniform(0.7, 1.0)
+    #                 }
+    #                 # Normalize to ensure they sum to 1.0
+    #                 total = sum(frame_prediction.values())
+    #                 frame_prediction = {k: v/total for k, v in frame_prediction.items()}
+    #                 logger.debug(f"Using mock predictions for frame {frame_num}")
+    #             else:
+    #                 # Use the Hugging Face model directly on the frame (no need to save to file)
+    #                 frame_prediction = detect_nsfw_content(frame)
+                
+    #             # Determine if frame is NSFW based on threshold
+    #             nsfw_confidence = frame_prediction.get("nsfw", 0.0)
+    #             is_nsfw = nsfw_confidence >= confidence_threshold
+                
+    #             # Update counters
+    #             if is_nsfw:
+    #                 nsfw_frames += 1
+    #                 nsfw_categories["nsfw"] += 1
+    #             else:
+    #                 nsfw_categories["neutral"] += 1
+                
+    #             max_nsfw_confidence = max(max_nsfw_confidence, nsfw_confidence)
+                
+    #             # Add result
+    #             frame_results.append({
+    #                 "frame_number": frame_num,
+    #                 "timestamp_seconds": timestamp,
+    #                 "timestamp_formatted": format_timestamp(timestamp),
+    #                 "is_nsfw": is_nsfw,
+    #                 "nsfw_confidence": nsfw_confidence,
+    #                 "all_categories": frame_prediction
+    #             })
+                
+    #             processed_frames += 1
+                
+    #         except Exception as e:
+    #             logger.error(f"Error processing frame {frame_num}: {str(e)}")
+    #             # Continue with next frame
+        
+    #     # Calculate processing time and metrics
+    #     processing_time = time.time() - processing_start
+        
+    #     # Generate summary statistics
+    #     summary = {
+    #         "total_frames_analyzed": processed_frames,
+    #         "frames_with_nsfw_content": nsfw_frames,
+    #         "nsfw_percentage": (nsfw_frames / processed_frames * 100) if processed_frames else 0,
+    #         "max_nsfw_confidence": max_nsfw_confidence,
+    #         "processing_time_seconds": processing_time,
+    #         "frames_per_second": processed_frames / processing_time if processing_time > 0 else 0,
+    #         "category_distribution": nsfw_categories,
+    #         "primary_category": "nsfw" if nsfw_frames > (processed_frames / 2) else "neutral"
+    #     }
+        
+    #     logger.info(f"Completed NSFW analysis: {processed_frames} frames, {nsfw_frames} with NSFW content")
+
+    #     response_content = {
+    #         "summary": summary,
+    #         "results": frame_results,
+    #         "model_info": "Using Hugging Face NSFW detection model (Falconsai/nsfw_image_detection)"
+    #     }
+    
+    logger.info(f"Processing video with content type: {video.content_type}, filename: {video.filename}")
+    
     tmp_path = None
     processing_start = time.time()
     
@@ -886,100 +1041,11 @@ async def check_nsfw_in_video(
             shutil.copyfileobj(video.file, tmp)
             tmp_path = tmp.name
             
-        logger.info(f"Processing video for NSFW content: {video.filename}")
+        logger.info(f"Processing video for comprehensive analysis: {video.filename}")
         
-        # Process frames
-        frame_results = []
-        nsfw_frames = 0
-        processed_frames = 0
-        nsfw_categories = {
-            "nsfw": 0,
-            "neutral": 0
-        }
-        max_nsfw_confidence = 0.0
-        
-        for frame_num, timestamp, frame in extract_frames(tmp_path, frame_interval=frame_interval):
-            # Resize frame for faster processing if needed
-            height, width = frame.shape[:2]
-            if max(height, width) > resize_max_dimension:
-                scale = resize_max_dimension / max(height, width)
-                new_size = (int(width * scale), int(height * scale))
-                frame = cv2.resize(frame, new_size)
-            
-            try:
-                # Predict NSFW content
-                if use_mock_implementation:
-                    # Mock implementation for testing when model is not available
-                    import random
-                    # Generate random predictions for demonstration purposes
-                    frame_prediction = {
-                        "nsfw": random.uniform(0, 0.3),
-                        "neutral": random.uniform(0.7, 1.0)
-                    }
-                    # Normalize to ensure they sum to 1.0
-                    total = sum(frame_prediction.values())
-                    frame_prediction = {k: v/total for k, v in frame_prediction.items()}
-                    logger.debug(f"Using mock predictions for frame {frame_num}")
-                else:
-                    # Use the Hugging Face model directly on the frame (no need to save to file)
-                    frame_prediction = detect_nsfw_content(frame)
-                
-                # Determine if frame is NSFW based on threshold
-                nsfw_confidence = frame_prediction.get("nsfw", 0.0)
-                is_nsfw = nsfw_confidence >= confidence_threshold
-                
-                # Update counters
-                if is_nsfw:
-                    nsfw_frames += 1
-                    nsfw_categories["nsfw"] += 1
-                else:
-                    nsfw_categories["neutral"] += 1
-                
-                max_nsfw_confidence = max(max_nsfw_confidence, nsfw_confidence)
-                
-                # Add result
-                frame_results.append({
-                    "frame_number": frame_num,
-                    "timestamp_seconds": timestamp,
-                    "timestamp_formatted": format_timestamp(timestamp),
-                    "is_nsfw": is_nsfw,
-                    "nsfw_confidence": nsfw_confidence,
-                    "all_categories": frame_prediction
-                })
-                
-                processed_frames += 1
-                
-            except Exception as e:
-                logger.error(f"Error processing frame {frame_num}: {str(e)}")
-                # Continue with next frame
-        
-        # Calculate processing time and metrics
-        processing_time = time.time() - processing_start
-        
-        # Generate summary statistics
-        summary = {
-            "total_frames_analyzed": processed_frames,
-            "frames_with_nsfw_content": nsfw_frames,
-            "nsfw_percentage": (nsfw_frames / processed_frames * 100) if processed_frames else 0,
-            "max_nsfw_confidence": max_nsfw_confidence,
-            "processing_time_seconds": processing_time,
-            "frames_per_second": processed_frames / processing_time if processing_time > 0 else 0,
-            "category_distribution": nsfw_categories,
-            "primary_category": "nsfw" if nsfw_frames > (processed_frames / 2) else "neutral"
-        }
-        
-        logger.info(f"Completed NSFW analysis: {processed_frames} frames, {nsfw_frames} with NSFW content")
-
-        response_content = {
-            "summary": summary,
-            "results": frame_results,
-            "model_info": "Using Hugging Face NSFW detection model (Falconsai/nsfw_image_detection)"
-        }
-        
+        analyse_smol_vlm(tmp_path)
         # Add a note if we're using the mock implementation
-        if use_mock_implementation:
-            response_content["note"] = "Using mock NSFW detection as the model is not available. Results are for demonstration purposes only."
-            
+        response_content ={"result":200}
         return JSONResponse(content=response_content)
 
     except Exception as e:

@@ -131,6 +131,19 @@ def get_video_by_content_id(content_id: str) -> Optional[Dict[str, Any]]:
             )
             return cur.fetchone()
 
+def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
+    """Get a video by ID."""
+    with DBContextManager() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM videos
+                WHERE id = %s
+                """,
+                (video_id,)
+            )
+            return cur.fetchone()
+
 def update_video_status(video_id: int, status: str) -> bool:
     """Update the status of a video."""
     with DBContextManager() as conn:

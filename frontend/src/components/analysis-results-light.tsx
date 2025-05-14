@@ -235,10 +235,9 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
           </div>
 
           {/* Content Type Analysis */}
-          <div className="space-y-6 p-4 rounded-lg bg-gray-50 border border-gray-200">
+          {/* <div className="space-y-6 p-4 rounded-lg bg-gray-50 border border-gray-200">
             <h3 className="text-lg font-medium text-gray-800 mb-4">Content Type Analysis</h3>
             
-            {/* NSFW Analysis */}
             <div className="space-y-2">
               <div className="flex justify-between">
                 <div className="flex items-center gap-2">
@@ -262,7 +261,6 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
               </div>
             </div>
             
-            {/* Violence Analysis */}
             <div className="space-y-2 mt-4">
               <div className="flex justify-between">
                 <div className="flex items-center gap-2">
@@ -286,7 +284,6 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
               </div>
             </div>
             
-            {/* Profanity Analysis */}
             <div className="space-y-2 mt-4">
               <div className="flex justify-between">
                 <div className="flex items-center gap-2">
@@ -309,7 +306,7 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
                 )}
               </div>
             </div>
-          </div>
+          </div> */}
         </CardContent>
       </Card>
 

@@ -1,0 +1,77 @@
+model-settings:
+  prediction-threshold: 0.23
+  model-name: 'ViT-B/32'
+  device: 'cpu'
+
+label-settings:
+  labels:
+    # OUTDOOR ENVIRONMENT
+    ## General
+    - 'people walking on a street'
+    - 'group of people on street'
+    - 'buildings'
+    - 'road'
+    - 'cars'
+    - 'cars on a road'
+    - 'car parking area'
+    - 'person riding a bicycle'
+    - 'person riding a motorcycle'
+    - 'traffic congestion'
+
+    ## Incidents & Anomalies
+    - 'fight on a street'
+    - 'fire on a street'
+    - 'street violence'
+    - 'accident on road'
+    - 'car crash'
+    - 'person lying on ground'
+    - 'police presence on street'
+    - 'emergency vehicle on street'
+    - 'person running on street'
+    - 'person holding weapon on street'
+    - 'street protest'
+    - 'vandalism on street'
+    - 'suspicious behavior on street'
+
+    ## Contextual Elements
+    - 'street market'
+    - 'bus stop area'
+    - 'construction site'
+    - 'public park'
+    - 'zebra crossing'
+    - 'traffic signal area'
+
+    # INDOOR ENVIRONMENT
+    ## General Office Scenarios
+    - 'office environment'
+    - 'office corridor'
+    - 'person walking in office'
+    - 'people walking in office'
+    - 'person sitting at desk'
+    - 'person using a computer'
+    - 'people talking'
+    - 'meeting in office'
+    - 'group of people'
+    - 'person entering office room'
+    - 'person standing idle'
+
+    ## Incidents & Anomalies
+    - 'violence in office'
+    - 'fire in office'
+    - 'person lying on floor in office'
+    - 'person holding object in office'
+    - 'person holding weapon in office'
+    - 'suspicious behavior in office'
+    - 'security personnel in office'
+    - 'emergency evacuation in office'
+    - 'person hiding in office'
+    - 'medical emergency in office'
+
+    ## Contextual Elements
+    - 'server room'
+    - 'conference room'
+    - 'reception area'
+    - 'elevator lobby'
+    - 'cafeteria'
+
+  default-label: 'Unknown'

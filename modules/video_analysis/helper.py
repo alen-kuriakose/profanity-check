@@ -312,8 +312,9 @@ def divide_video_to_frames(video_path):
         count+=1
 
     cap.release()
-    detect_violence(output_folder)
-    detect_nudity_falconsai(output_folder)
+    # detect_violence(output_folder)
+    # detect_nudity_falconsai(output_folder)
+    predit_action(output_folder)
     # print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
     
 from transformers import CLIPProcessor, CLIPModel
@@ -353,4 +354,44 @@ def detect_violence(frames_folder):
                     
     print("results",results)
     return results 
+
+
+import cv2
+from glob import glob
+from pathlib import Path
+
+def get_whisper_model(model_size="tiny"):
+    """
+    Get a Whisper model with the specified size.
+    
+    :param model_size: Size of the model ('tiny', 'base', 'small', 'medium', 'large')
+    :return: Loaded Whisper model
+    """
+    import whisper
+    
+    # Validate model size
+    valid_sizes = ["tiny", "base", "small", "medium", "large"]
+    if model_size not in valid_sizes:
+        logging.warning(f"Invalid model size: {model_size}. Using 'tiny' instead.")
+        model_size = "tiny"
+    
+    # Load and return the model
+    logging.info(f"Loading Whisper model: {model_size}")
+    return whisper.load_model(model_size)
+
+from model.model import Model
+# from utils import plot
+
+def predit_action(frames_folder):
+    model = Model()
+    # Get list of image paths and sort them
+    image_pathes = sorted(glob(str(Path(frames_folder) / "*.jpg")))
+    for i, image_path in enumerate(image_pathes):
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        label = model.predict(image)['label']
+        print( model.predict(image))
+        print ("trial label",label)
+
+
 

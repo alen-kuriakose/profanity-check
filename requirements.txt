@@ -37,4 +37,12 @@ ultralytics>=8.0.0
 openai-clip
 protobuf==3.20.3
 
+pyheif==0.5.1
+requests==2.26.0
+clip-by-openai
+matplotlib==3.4.2
+whatimage==0.0.3
+streamlit==0.89.0
+pyaml
+num2words
 

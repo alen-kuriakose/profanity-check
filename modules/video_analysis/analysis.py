@@ -14,7 +14,7 @@ import tempfile
 import whisper
 from moviepy import VideoFileClip
 from typing import Dict, Any, Optional, List, Union
-from utils.helper import calculate_profanity_confidence, format_timestamp, get_whisper_model
+from .helper import calculate_profanity_confidence, format_timestamp, get_whisper_model
 logger = logging.getLogger(__name__)
 
 def analyze_nsfw_content(video_path: str, frame_interval: int = 1, confidence_threshold: float = 0.5) -> Dict[str, Any]:

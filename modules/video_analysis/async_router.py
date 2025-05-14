@@ -217,14 +217,70 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
                 if confidence > violence_max_confidence:
                     violence_max_confidence = confidence
         
-        # Process profanity data (assuming similar structure)
-        profanity_details = profanity_analysis.get("details", {}).get("profanity", [])
-        for frame in profanity_details:
-            if frame.get("has_profanity", False):
-                profanity_frames += 1
-                confidence = frame.get("confidence", 0)
-                if confidence > profanity_max_confidence:
-                    profanity_max_confidence = confidence
+        # Process profanity data - check for new format first
+        # First try to parse result_data if it's a string
+        profanity_result_data = profanity_analysis.get("result_data", {})
+        if isinstance(profanity_result_data, str):
+            try:
+                import json
+                profanity_result_data = json.loads(profanity_result_data)
+            except Exception as e:
+                logger.warning(f"Error parsing profanity result_data: {e}")
+                profanity_result_data = {}
+        
+        # Check if we have the new format with summary, flags, detailed_results
+        if isinstance(profanity_result_data, dict) and 'summary' in profanity_result_data:
+            # Extract data from the summary
+            profanity_summary = profanity_result_data.get('summary', {})
+            profanity_frames = profanity_summary.get('profanity', {}).get('segments_detected', 0)
+            profanity_max_confidence = profanity_summary.get('profanity', {}).get('max_confidence', 0)
+            
+            # Get flags for profanity
+            profanity_flags = profanity_result_data.get('flags', [])
+            profanity_details = profanity_result_data.get('detailed_results', [])
+            
+            # If we have detailed_results, use those directly
+            if profanity_details:
+                # These are already in the right format
+                pass
+            else:
+                # Convert flags to details format
+                profanity_details = []
+                for flag in profanity_flags:
+                    if flag.get('type') == 'profane':
+                        profanity_details.append({
+                            "frame_number": flag.get('frame_number', 0),
+                            "timestamp_seconds": flag.get('timestamp', 0),
+                            "timestamp_formatted": flag.get('timestamp_formatted', "00:00:00.000"),
+                            "has_inappropriate_content": True,
+                            "profanity": {
+                                "detected": True,
+                                "confidence": flag.get('confidence', 0.5),
+                                "text": flag.get('text', ""),
+                                "source": flag.get('source', "audio")
+                            }
+                        })
+        else:
+            # Fall back to old format
+            # Get profanity details from the parsed result_data
+            profanity_details = profanity_result_data.get("profanity_details", [])
+            if not profanity_details:
+                # Try alternate locations in the data structure
+                profanity_details = profanity_result_data.get("timestamp_results", [])
+            
+            # Process the profanity details
+            for frame in profanity_details:
+                has_profanity = frame.get("has_profanity", False)
+                if has_profanity:
+                    profanity_frames += 1
+                    confidence = frame.get("confidence", 0)
+                    if confidence > profanity_max_confidence:
+                        profanity_max_confidence = confidence
+            
+            # If we still don't have profanity frames, use the count from the analysis record
+            if profanity_frames == 0 and profanity_analysis.get("has_profanity", False):
+                profanity_frames = profanity_analysis.get("profanity_frames", 0)
+                profanity_max_confidence = profanity_analysis.get("max_profanity_confidence", 0)
         
         # Calculate total frames and percentages
         try:
@@ -247,113 +303,192 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
         # Generate flags array for content issues
         flags = []
         
-        # Add NSFW flags
-        for frame in nsfw_details:
+        # Check if combined analysis result_data contains flags
+        combined_result_data = combined.get("result_data", {})
+        if isinstance(combined_result_data, str):
             try:
-                if frame.get("is_nsfw", False) and float(frame.get("confidence", 0)) > 0.6:  # Threshold
-                    # Calculate timestamp in seconds
-                    timestamp_seconds = float(frame.get("timestamp", 0))
-                    
-                    # Format timestamp as MM:SS
-                    minutes = int(timestamp_seconds // 60)
-                    seconds = int(timestamp_seconds % 60)
-                    timestamp_formatted = f"{minutes}:{seconds:02d}"
-                    
-                    flags.append({
-                        "type": "explicit",
-                        "confidence": float(frame.get("confidence", 0)),
-                        "timestamp": timestamp_seconds,
-                        "timestamp_formatted": timestamp_formatted,
-                        "frame_number": int(frame.get("frame_number", 0))
-                    })
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing NSFW frame: {e}")
+                import json
+                combined_result_data = json.loads(combined_result_data)
+            except Exception as e:
+                logger.warning(f"Error parsing combined result_data: {e}")
+                combined_result_data = {}
         
-        # Add violence flags
-        for frame in violence_details:
-            try:
-                if frame.get("is_violent", False) and float(frame.get("confidence", 0)) > 0.6:  # Threshold
-                    # Calculate timestamp in seconds
-                    timestamp_seconds = float(frame.get("timestamp", 0))
+        # If combined result_data has flags, use those directly
+        if isinstance(combined_result_data, dict) and "flags" in combined_result_data:
+            flags = combined_result_data.get("flags", [])
+        else:
+            # Otherwise, generate flags from individual analyses
+            
+            # Add NSFW flags
+            for frame in nsfw_details:
+                try:
+                    if frame.get("is_nsfw", False) and float(frame.get("confidence", 0)) > 0.6:  # Threshold
+                        # Calculate timestamp in seconds
+                        timestamp_seconds = float(frame.get("timestamp", 0))
+                        
+                        # Format timestamp as MM:SS
+                        minutes = int(timestamp_seconds // 60)
+                        seconds = int(timestamp_seconds % 60)
+                        timestamp_formatted = f"{minutes}:{seconds:02d}"
+                        
+                        flags.append({
+                            "type": "explicit",
+                            "confidence": float(frame.get("confidence", 0)),
+                            "timestamp": timestamp_seconds,
+                            "timestamp_formatted": timestamp_formatted,
+                            "frame_number": int(frame.get("frame_number", 0))
+                        })
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error processing NSFW frame: {e}")
+            
+            # Add violence flags
+            for frame in violence_details:
+                try:
+                    if frame.get("is_violent", False) and float(frame.get("confidence", 0)) > 0.6:  # Threshold
+                        # Calculate timestamp in seconds
+                        timestamp_seconds = float(frame.get("timestamp", 0))
+                        
+                        # Format timestamp as MM:SS
+                        minutes = int(timestamp_seconds // 60)
+                        seconds = int(timestamp_seconds % 60)
+                        timestamp_formatted = f"{minutes}:{seconds:02d}"
+                        
+                        flags.append({
+                            "type": "violent",
+                            "confidence": float(frame.get("confidence", 0)),
+                            "timestamp": timestamp_seconds,
+                            "timestamp_formatted": timestamp_formatted,
+                            "frame_number": int(frame.get("frame_number", 0))
+                        })
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error processing violence frame: {e}")
+            
+            # Add profanity flags
+            for frame in profanity_details:
+                try:
+                    # Check for profanity - different structure than NSFW/violence
+                    has_profanity = frame.get("has_profanity", False)
                     
-                    # Format timestamp as MM:SS
-                    minutes = int(timestamp_seconds // 60)
-                    seconds = int(timestamp_seconds % 60)
-                    timestamp_formatted = f"{minutes}:{seconds:02d}"
+                    # If no has_profanity field, assume it's a profanity frame (from audio analysis)
+                    if "has_profanity" not in frame:
+                        has_profanity = True
                     
-                    flags.append({
-                        "type": "violent",
-                        "confidence": float(frame.get("confidence", 0)),
-                        "timestamp": timestamp_seconds,
-                        "timestamp_formatted": timestamp_formatted,
-                        "frame_number": int(frame.get("frame_number", 0))
-                    })
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing violence frame: {e}")
-        
-        # Add profanity flags
-        for frame in profanity_details:
-            try:
-                if frame.get("has_profanity", False) and float(frame.get("confidence", 0)) > 0.6:  # Threshold
-                    # Calculate timestamp in seconds
-                    timestamp_seconds = float(frame.get("timestamp", 0))
+                    confidence = frame.get("confidence", 0)
+                    if isinstance(confidence, str):
+                        try:
+                            confidence = float(confidence)
+                        except ValueError:
+                            confidence = 0.7  # Default if can't convert
                     
-                    # Format timestamp as MM:SS
-                    minutes = int(timestamp_seconds // 60)
-                    seconds = int(timestamp_seconds % 60)
-                    timestamp_formatted = f"{minutes}:{seconds:02d}"
-                    
-                    flags.append({
-                        "type": "profane",
-                        "confidence": float(frame.get("confidence", 0)),
-                        "timestamp": timestamp_seconds,
-                        "timestamp_formatted": timestamp_formatted,
-                        "text": str(frame.get("text", "")),
-                        "frame_number": int(frame.get("frame_number", 0))
-                    })
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing profanity frame: {e}")
+                    if has_profanity and confidence > 0.6:  # Threshold
+                        # Calculate timestamp in seconds
+                        timestamp_seconds = frame.get("timestamp", 0)
+                        if isinstance(timestamp_seconds, str):
+                            try:
+                                timestamp_seconds = float(timestamp_seconds)
+                            except ValueError:
+                                timestamp_seconds = 0
+                        
+                        # Format timestamp as MM:SS
+                        minutes = int(timestamp_seconds // 60)
+                        seconds = int(timestamp_seconds % 60)
+                        timestamp_formatted = f"{minutes}:{seconds:02d}"
+                        
+                        # Get text if available
+                        text = frame.get("text", "")
+                        
+                        # Get frame number
+                        frame_number = frame.get("frame_number", 0)
+                        if isinstance(frame_number, str):
+                            try:
+                                frame_number = int(frame_number)
+                            except ValueError:
+                                frame_number = 0
+                        
+                        flags.append({
+                            "type": "profane",
+                            "confidence": confidence,
+                            "timestamp": timestamp_seconds,
+                            "timestamp_formatted": timestamp_formatted,
+                            "text": str(text),
+                            "frame_number": frame_number,
+                            "source": frame.get("source", "audio")
+                        })
+                except Exception as e:
+                    logger.warning(f"Error processing profanity frame: {e}")
         
         # Prepare detailed results for frame-by-frame analysis
         detailed_results = []
-        
         
         try:
             # Get the maximum frame number to determine video length
             max_frame = 0
             for analysis_type in [nsfw_details, violence_details, profanity_details]:
                 for frame in analysis_type:
-                    frame_num = frame.get("frame_number", 0)
-                    if frame_num > max_frame:
-                        max_frame = frame_num
+                    try:
+                        frame_num = int(frame.get("frame_number", 0))
+                        if frame_num > max_frame:
+                            max_frame = frame_num
+                    except (ValueError, TypeError):
+                        # If frame_number can't be converted to int, skip it
+                        pass
             
             # Create a frame-by-frame analysis
             for frame_num in range(max_frame + 1):
                 # Find corresponding frames in each analysis
-                nsfw_frame = next((f for f in nsfw_details if f.get("frame_number") == frame_num), None)
-                violence_frame = next((f for f in violence_details if f.get("frame_number") == frame_num), None)
-                profanity_frame = next((f for f in profanity_details if f.get("frame_number") == frame_num), None)
+                nsfw_frame = next((f for f in nsfw_details if int(f.get("frame_number", -1)) == frame_num), None)
+                violence_frame = next((f for f in violence_details if int(f.get("frame_number", -1)) == frame_num), None)
+                
+                # For profanity, we need to handle both formats (has_profanity and no has_profanity field)
+                profanity_frame = next((f for f in profanity_details 
+                                      if (int(f.get("frame_number", -1)) == frame_num) or 
+                                         (f.get("timestamp") is not None and 
+                                          int(float(f.get("timestamp", 0)) * 30) == frame_num)), None)
                 
                 # Determine if this frame has inappropriate content
                 has_inappropriate = (
                     (nsfw_frame and nsfw_frame.get("is_nsfw", False)) or
                     (violence_frame and violence_frame.get("is_violent", False)) or
-                    (profanity_frame and profanity_frame.get("has_profanity", False))
+                    (profanity_frame and (profanity_frame.get("has_profanity", True)))  # Default to True for audio profanity
                 )
                 
                 # Calculate timestamp in seconds and format it
+                timestamp_seconds = 0
                 if nsfw_frame and "timestamp" in nsfw_frame:
-                    timestamp_seconds = nsfw_frame["timestamp"]
+                    timestamp_seconds = float(nsfw_frame["timestamp"])
                 elif violence_frame and "timestamp" in violence_frame:
-                    timestamp_seconds = violence_frame["timestamp"]
+                    timestamp_seconds = float(violence_frame["timestamp"])
                 elif profanity_frame and "timestamp" in profanity_frame:
-                    timestamp_seconds = profanity_frame["timestamp"]
+                    timestamp_seconds = float(profanity_frame["timestamp"])
                 else:
-                    timestamp_seconds = frame_num
+                    # Estimate timestamp based on frame number (assuming 30fps)
+                    timestamp_seconds = frame_num / 30.0
                     
                 minutes = int(timestamp_seconds // 60)
                 seconds = int(timestamp_seconds % 60)
                 timestamp_formatted = f"{minutes}:{seconds:02d}"
+                
+                # Handle profanity detection specifically
+                profanity_detected = False
+                profanity_confidence = 0.0
+                profanity_text = ""
+                
+                if profanity_frame:
+                    # Check if it has the has_profanity field
+                    if "has_profanity" in profanity_frame:
+                        profanity_detected = profanity_frame.get("has_profanity", False)
+                    else:
+                        # If no has_profanity field, it's from audio analysis and is profane
+                        profanity_detected = True
+                    
+                    # Get confidence
+                    try:
+                        profanity_confidence = float(profanity_frame.get("confidence", 0))
+                    except (ValueError, TypeError):
+                        profanity_confidence = 0.7  # Default if can't convert
+                    
+                    # Get text
+                    profanity_text = profanity_frame.get("text", "")
                 
                 # Create frame details
                 frame_detail = {
@@ -370,29 +505,15 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
                         "confidence": float(violence_frame.get("confidence", 0)) if violence_frame else 0
                     },
                     "profanity": {
-                        "detected": profanity_frame.get("has_profanity", False) if profanity_frame else False,
-                        "confidence": float(profanity_frame.get("confidence", 0)) if profanity_frame else 0,
-                        "text": profanity_frame.get("text", "") if profanity_frame else ""
+                        "detected": profanity_detected,
+                        "confidence": profanity_confidence,
+                        "text": profanity_text,
+                        "source": profanity_frame.get("source", "audio") if profanity_frame else ""
                     }
                 }
                 
                 detailed_results.append(frame_detail)
                 
-        except Exception as e:
-            logger.error(f"Error generating detailed results: {e}")
-            # Provide at least some frame data even if there's an error
-            detailed_results = [
-                {
-                    "frame_number": 0,
-                    "timestamp_seconds": 0,
-                    "timestamp_formatted": "0:00",
-                    "has_inappropriate_content": False,
-                    "nsfw": {"detected": False, "confidence": 0},
-                    "violence": {"detected": False, "confidence": 0},
-                    "profanity": {"detected": False, "confidence": 0, "text": ""}
-                }
-            ]
-
         except Exception as e:
             logger.error(f"Error generating detailed results: {e}")
             # Provide at least some frame data even if there's an error
@@ -476,12 +597,53 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
             profanity_data = results.get("profanity_analysis", {}).get("result_data", {})
             combined_data = combined.get("result_data", {})
             
+            # Parse JSON strings if needed
+            for data_name, data_value in [("nsfw_data", nsfw_data), 
+                                         ("violence_data", violence_data), 
+                                         ("profanity_data", profanity_data),
+                                         ("combined_data", combined_data)]:
+                if isinstance(data_value, str):
+                    try:
+                        import json
+                        locals()[data_name] = json.loads(data_value)
+                    except Exception as e:
+                        logger.warning(f"Error parsing {data_name}: {e}")
+            
+            # For profanity data, make sure we have the right structure
+            if isinstance(profanity_data, dict):
+                # Check if we need to extract profanity details from the structure
+                if "profanity_details" in profanity_data:
+                    profanity_details_data = profanity_data["profanity_details"]
+                elif "timestamp_results" in profanity_data:
+                    profanity_details_data = profanity_data["timestamp_results"]
+                else:
+                    profanity_details_data = []
+                
+                # Add segments with profanity if available
+                segments_with_profanity = profanity_data.get("segments_with_profanity", [])
+                
+                # Create a more structured profanity data object
+                profanity_data = {
+                    "details": profanity_details_data,
+                    "segments": segments_with_profanity,
+                    "transcript": profanity_analysis.get("transcript", ""),
+                    "language": profanity_data.get("language", "en"),
+                    "method": profanity_analysis.get("method", "audio_transcription")
+                }
+            
             response["details"] = {
                 "nsfw": nsfw_data,
                 "violence": violence_data,
                 "profanity": profanity_data,
                 "combined": combined_data
             }
+            
+            # Make sure detailed_results is included in the response
+            if "detailed_results" not in response or not include_details:
+                response["detailed_results"] = []
+            elif include_details:
+                # Keep the detailed_results we generated earlier
+                pass
         
         return response
         
@@ -615,9 +777,24 @@ async def list_videos(limit: int = Query(100, description="Maximum number of vid
                                     if isinstance(result_data, dict) and "summary" in result_data:
                                         summary = result_data["summary"]
                                         if "frames_with_inappropriate_content" in summary and "flagged_frames" not in video_data:
-                                            video_data["flagged_frames"] = int(summary["frames_with_inappropriate_content"])
+                                            inappropriate_frames = summary.get("frames_with_inappropriate_content", 0)
+                                            if inappropriate_frames is not None:
+                                                try:
+                                                    video_data["flagged_frames"] = int(inappropriate_frames)
+                                                except (ValueError, TypeError):
+                                                    video_data["flagged_frames"] = 0
+                                            else:
+                                                video_data["flagged_frames"] = 0
+                                                
                                         if "total_frames_analyzed" in summary and "total_frames" not in video_data:
-                                            video_data["total_frames"] = int(summary["total_frames_analyzed"])
+                                            total_frames = summary.get("total_frames_analyzed", 0)
+                                            if total_frames is not None:
+                                                try:
+                                                    video_data["total_frames"] = int(total_frames)
+                                                except (ValueError, TypeError):
+                                                    video_data["total_frames"] = 0
+                                            else:
+                                                video_data["total_frames"] = 0
                                 except Exception as e:
                                     logger.warning(f"Error parsing result_data for video {video['content_id']}: {e}")
                         except (ValueError, TypeError) as e:

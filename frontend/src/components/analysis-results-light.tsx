@@ -376,7 +376,7 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
                             {flag.type === 'profane' && flag.text ? (
                               <div className="flex flex-col">
                                 <span>"{flag.text}"</span>
-                                <span className="text-xs text-gray-500">Frame {flag.frame_number}</span>
+                                {/* <span className="text-xs text-gray-500">Frame {flag.frame_number}</span> */}
                               </div>
                             ) : (
                               <span>Frame {flag.frame_number}</span>

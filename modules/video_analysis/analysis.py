@@ -313,6 +313,7 @@ def check_audio_profanity(
         timestamp_results = []
         segments_with_profanity = []
         
+        print(f"/n Transcript: {transcript}")
         for segment in result.get('segments', []):
             segment_text = segment.get('text', '').strip()
             if segment_text and profanity.contains_profanity(segment_text):

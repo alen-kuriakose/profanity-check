@@ -229,6 +229,48 @@ export function VideoUpload({ onAnalysisComplete }: VideoUploadProps) {
           },
           detailed_results: []
         };
+      }
+      else if (!checkNsfw && checkProfanity && !checkViolence) {
+        console.log("Using dedicated profanity check endpoint");
+        const profanityResult = await videoAnalysisApi.checkProfanity(file, {
+          contentId,
+          frameInterval,
+          checkAudio: true,
+          checkFrames: true
+        });
+        
+        // Format the result to match the expected structure
+        result = {
+          content_id: contentId,
+          filename: file.name,
+          status: "completed",
+          content_rating: profanityResult.has_profanity ? "profane" : "safe",
+          summary: {
+            content_id: contentId,
+            filename: file.name,
+            total_frames_analyzed: 0,
+            frames_with_inappropriate_content: 0,
+            inappropriate_percentage: 0,
+            nsfw: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            violence: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            profanity: {
+              frames_detected: 0,
+              percentage: 0,
+              max_confidence: 0,
+            },
+            processing_time_seconds: 0,
+            frames_per_second: 0,
+          },
+          detailed_results: []
+        };
       } 
       else {
         // Use the comprehensive analysis endpoint
@@ -344,9 +386,9 @@ export function VideoUpload({ onAnalysisComplete }: VideoUploadProps) {
   };
 
   return (
-    <Card className="w-full mx-auto shadow-lg border-2">
+    <Card className="w-full mx-auto shadow-lg border-2 h-full">
       <CardHeader className="bg-muted/30">
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 ">
           <FileVideo className="h-5 w-5 text-primary" />
           Video Analysis
         </CardTitle>

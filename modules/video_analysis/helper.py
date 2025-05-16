@@ -126,33 +126,16 @@ def calculate_profanity_confidence(text):
         
         features['context_amplification'] = context_factor / profane_word_count if profane_word_count > 0 else 0
         
-        # Calculate final confidence score using weighted components
-        if not profane_words and features['obfuscation_count'] == 0:
-            confidence_score = 0.0
+        # Super simple confidence score calculation
+        if profanity.contains_profanity(normalized_text):
+            # If profanity is detected, use a high confidence score
+            confidence_score = 0.9
+        elif features['obfuscation_count'] > 0:
+            # If only obfuscated profanity is detected
+            confidence_score = 0.7
         else:
-            # Weighted combination of features (industry approach)
-            weights = {
-                'profane_word_ratio': 0.15,
-                'average_severity': 0.35,
-                'max_severity': 0.20,
-                'proximity_factor': 0.10,
-                'context_amplification': 0.15,
-                'obfuscation_count': 0.05
-            }
-            
-            confidence_score = sum(weights[k] * features.get(k, 0) for k in weights)
-            
-            # Apply threshold adjustment (common in industry systems)
-            if confidence_score > 0:
-                # Even a small amount of profanity has a minimum confidence
-                if features['max_severity'] > 0.7:
-                    # Higher minimum threshold for severe profanity
-                    confidence_score = max(0.5, confidence_score)
-                else:
-                    confidence_score = max(0.3, confidence_score)
-            
-            # Apply ceiling
-            confidence_score = min(1.0, confidence_score)
+            # No profanity detected
+            confidence_score = 0.0
         
         return confidence_score, features
     

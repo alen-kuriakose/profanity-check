@@ -16,10 +16,10 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="h-screen bg-background">
       <Toaster />
       
-      <header className="border-b">
+      <header className="border-b ">
         <div className="container mx-auto py-4 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-6 w-6 text-primary" />
@@ -32,7 +32,7 @@ export default function Home() {
         </div>
       </header>
       
-      <div className="container mx-auto py-8 px-4">
+      <div className="container mx-auto py-8 px-4 h-[90%]">
         <div className=" mx-auto">
           <div className="text-center mb-8">
             <h2 className="text-2xl font-bold mb-2">Video Content Analysis</h2>
@@ -45,7 +45,7 @@ export default function Home() {
         </div>
       </div>
       
-      <footer className="border-t mt-auto">
+      <footer className="border-t mt-auto bg-">
         <div className="container mx-auto py-4 px-4 text-center text-sm text-muted-foreground">
           &copy; {new Date().getFullYear()} Video Analysis Platform
         </div>

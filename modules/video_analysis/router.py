@@ -997,8 +997,8 @@ async def check_stylized_text(
     """
     # Accept any video format for testing purposes
     # In production, you might want to restrict to specific formats
-    logger.info(
-        f"Processing video with content type: {video.content_type}, filename: {video.filename}")
+    # logger.info(
+        # f"Processing video with content type: {video.content_type}, filename: {video.filename}")
     # We'll try to process any video format
 
     with NamedTemporaryFile(delete=False, suffix=video.filename) as tmp:

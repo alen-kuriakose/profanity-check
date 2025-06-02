@@ -1,40 +1,99 @@
+import logging
 import re
-from transformers import AutoProcessor, AutoModelForImageClassification,AutoModelForVision2Seq,AutoModelForImageTextToText,MllamaForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForImageClassification,AutoModelForVision2Seq,AutoModelForImageTextToText,MllamaForConditionalGeneration,ViTImageProcessor
 from PIL import Image
 import torch
 import os
 import cv2
+import json
+from typing import Dict, List, Any, Optional
+
 model_name = "Falconsai/nsfw_image_detection"
 processor = AutoProcessor.from_pretrained(model_name)
 # model = AutoModelForImageClassification.from_pretrained(model_name)
+logger = logging.getLogger(__name__)
 
 
+def detect_nsfw_falconsai(frames_dir):
+    """
+    Detect NSFW content in frames using Falconsai model.
+    
+    Args:
+        frames_dir: Directory containing video frames
+        
+    Returns:
+        List of dictionaries with frame analysis results
+    """
+    import tempfile
+    from glob import glob
 
-def detect_nudity_falconsai(frames_dir, threshold=0.7):
+    model = AutoModelForImageClassification.from_pretrained("Falconsai/nsfw_image_detection")
+    processor = ViTImageProcessor.from_pretrained('Falconsai/nsfw_image_detection')
+
     results = []
-    for fname in sorted(os.listdir(frames_dir)):
-        if fname.endswith(".jpg") or fname.endswith(".png"):
-            img_path = os.path.join(frames_dir, fname)
-            image = Image.open(img_path).convert("RGB")
-            inputs = processor(images=image, return_tensors="pt")
+    frames = sorted(os.listdir(frames_dir))
+    for i, frame in enumerate(frames):
+        try:
+            frame_path = os.path.join(frames_dir, frame)
+            image = Image.open(frame_path).convert("RGB")
+            frame_number = i
+            
+            # Extract timestamp from filename if available
+            try:
+                # Assuming frame filenames follow a pattern like frame_X.jpg where X is the frame number
+                frame_base = os.path.splitext(os.path.basename(frame_path))[0]
+                if '_' in frame_base:
+                    frame_number = int(frame_base.split('_')[1])
+            except (ValueError, IndexError):
+                # If we can't extract frame number, use the index
+                frame_number = i
+                
+            # Calculate approximate timestamp (assuming 30fps)
+            timestamp_seconds = frame_number / 30.0
+            
             with torch.no_grad():
+                inputs = processor(images=image, return_tensors="pt")
                 outputs = model(**inputs)
-                print("model labels available",model.config.id2label)
-
+                logits = outputs.logits
+                
+                # Get probabilities
                 probs = torch.nn.functional.softmax(outputs.logits, dim=1)[0]
-                labels = model.config.id2label
-                top = torch.argmax(probs).item()
-                label = labels[top]
-                score = probs[top].item()
-
-                if label in ["nsfw"] and score > threshold:
-                    results.append({
-                        "frame": fname,
-                        "label": label,
-                        "score": round(score, 3)
-                    })
-                    
-    print("falconsai results",results)
+                
+                # Get predicted label
+                predicted_label_idx = logits.argmax(-1).item()
+                predicted_label = model.config.id2label[predicted_label_idx]
+                
+                # Get confidence score
+                confidence = probs[predicted_label_idx].item()
+                
+                # Format timestamp
+                minutes = int(timestamp_seconds // 60)
+                seconds = int(timestamp_seconds % 60)
+                milliseconds = int((timestamp_seconds % 1) * 1000)
+                timestamp_formatted = f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+                
+                # Create result object
+                frame_result = {
+                    "frame_number": frame_number,
+                    "timestamp_seconds": timestamp_seconds,
+                    "timestamp_formatted": timestamp_formatted,
+                    "is_nsfw": predicted_label == "nsfw",
+                    "label": predicted_label,
+                    "confidence": confidence,
+                    "all_scores": {
+                        label: probs[idx].item() for idx, label in model.config.id2label.items()
+                    }
+                }
+                
+                results.append(frame_result)
+                
+                logger.info(f"Frame {frame_number} ({timestamp_formatted}): {predicted_label} with confidence {confidence:.4f}")
+                
+        except Exception as e:
+            logger.error(f"Error processing frame {frame}: {str(e)}")
+            # Continue with next frame instead of failing the entire process
+            continue
+            
     return results
 
 
@@ -215,7 +274,7 @@ def extract_json_from_text(text):
             "profane text": ["profane", "profanity", "swear", "curse", "offensive language"],
             "violence": ["violence", "violent", "blood", "gore", "fighting", "weapon"],
             "nudity": ["nude", "nudity", "naked", "exposed", "revealing"],
-            "sexual content": ["sexual", "sex", "explicit", "intimate", "pornographic"],
+            "sexual content": ["sexual", "sex", "explicit", "intimate","pornographic"],
             "offensive text": ["offensive", "hate", "racist", "discriminatory", "slur"]
         }
         
@@ -322,6 +381,7 @@ def analyse_smol_vlm_opencv(video_path, frames_to_sample_per_minute=30):
         "duration_seconds": duration_seconds,
         "frames_analyzed": 0,
         "potential_profanity_incidents": [],
+        "model_responses": [],  # Store all model responses
         "overall_profanity_assessment": "No obvious profanity detected in sampled frames (pending robust checks)"
     }
     
@@ -431,16 +491,33 @@ def analyse_smol_vlm_opencv(video_path, frames_to_sample_per_minute=30):
                         "details": f"Category: {json_data.get('category', 'unknown')}, Description: {json_data.get('description', 'No description')}"
                     }
                     
+                    # Store the model's response for this frame
+                    frame_response = {
+                        "frame_number": frame_num,
+                        "raw_response": generated_text_full,
+                        "parsed_json": json_data
+                    }
+                    analysis_report["model_responses"].append(frame_response)
+                    
                     # Add to potential incidents
                     analysis_report["potential_profanity_incidents"].append({
                         "frame_number": frame_num,
                         "timestamp_ms": timestamp_ms,
                         "category": json_data.get("category", "unknown"),
-                        "description": json_data.get("description", "No description")
+                        "description": json_data.get("description", "No description"),
+                        "model_response": generated_text_full  # Include the full model response
                     })
                     
                     overall_profanity_found = True
                 else:
+                    # Store the model's response even for clean frames
+                    frame_response = {
+                        "frame_number": frame_num,
+                        "raw_response": generated_text_full,
+                        "parsed_json": json_data
+                    }
+                    analysis_report["model_responses"].append(frame_response)
+                    
                     incident_details["visual_profanity_cue_check"] = {
                         "found": False,
                         "details": "No inappropriate content detected"
@@ -484,10 +561,8 @@ def analyse_video(video_path, frames_to_sample_per_minute=30, method="ffmpeg"):
     else:
         # Check if FFMPEG is available
         if is_ffmpeg_available():
-            
-            print("Lllama model available. Using FFMPEG method.")
+            print("SmolVLM model available. Using FFMPEG method.")
             return analyse_smol_vlm_ffmpeg(video_path, frames_to_sample_per_minute)
-            # return analyse_llama(video_path, frames_to_sample_per_minute)
         else:
             print("FFMPEG not available. Falling back to OpenCV method.")
             return analyse_smol_vlm_opencv(video_path, frames_to_sample_per_minute)
@@ -541,6 +616,7 @@ def analyse_smol_vlm_ffmpeg(video_path, frames_to_sample_per_minute=15):
         "duration_seconds": duration_seconds,
         "frames_analyzed": 0,
         "potential_profanity_incidents": [],
+        "model_responses": [],  # Store all model responses
         "overall_profanity_assessment": "No obvious profanity detected in sampled frames (pending robust checks)"
     }
 
@@ -565,6 +641,15 @@ def analyse_smol_vlm_ffmpeg(video_path, frames_to_sample_per_minute=15):
     overall_profanity_found = False
     frames = sorted(glob(os.path.join(temp_dir, "frame_*.jpg")))
 
+    # Import BLIP model and processor
+    from transformers import BlipProcessor, BlipForConditionalGeneration
+    
+    # Load BLIP model and processor
+    blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(DEVICE)
+    
+    # Original implementation (commented out)
+    """
     for frame_path in frames:
         try:
             image = Image.open(frame_path).convert("RGB")
@@ -572,15 +657,7 @@ def analyse_smol_vlm_ffmpeg(video_path, frames_to_sample_per_minute=15):
 
             analysis_report["frames_analyzed"] += 1
 
-            # messages = [{
-            #     "role": "user",
-            #     "content": [
-            #         {"type": "image"},
-            #         {"type": "text", "text": prompt}
-            #     ]
-            # }]
-            messages = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Explain what is in the image"}]}]
-
+            messages = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": prompt}]}]
 
             prompt_str = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
 
@@ -589,29 +666,115 @@ def analyse_smol_vlm_ffmpeg(video_path, frames_to_sample_per_minute=15):
                 images=[image],
                 return_tensors="pt"
             ).to(DEVICE, dtype=DTYPE)
-            # print(f"Processing frame {frame_number} with prompt: {prompt_str}")
+            
             with torch.no_grad():
-                generated_ids = model.generate(**inputs, max_new_tokens=150, do_sample=False)
+                generated_ids = model.generate(**inputs, max_new_tokens=250, do_sample=False)
 
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
             print(f"Raw model output for frame {frame_number}: {generated_text}")
 
             json_data = extract_json_from_text(generated_text)
-            # print (f"Generated Text {processor.batch_decode(generated_ids, skip_special_tokens=True)}")
+            
             if not json_data:
                 json_data = {
                     "inappropriate": "NO",
                     "category": None,
                     "description": f"Unparsable response: {generated_text}"
                 }
+            
+            # Store the model's response for this frame
+            frame_response = {
+                "frame_number": frame_number,
+                "raw_response": generated_text,
+                "parsed_json": json_data
+            }
+            analysis_report["model_responses"].append(frame_response)
 
             if json_data["inappropriate"] == "YES":
+                # Calculate approximate timestamp in milliseconds
+                timestamp_ms = (frame_number / frames_per_minute) * 60 * 1000
+                
+                # Format timestamp for display
+                minutes = int(timestamp_ms / 60000)
+                seconds = int((timestamp_ms % 60000) / 1000)
+                milliseconds = int(timestamp_ms % 1000)
+                timestamp_formatted = f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+                
                 analysis_report["potential_profanity_incidents"].append({
                     "frame_number": frame_number,
+                    "timestamp_ms": timestamp_ms,
+                    "timestamp_formatted": timestamp_formatted,
                     "category": json_data["category"],
-                    "description": json_data["description"]
+                    "description": json_data["description"],
+                    "model_response": generated_text  # Include the full model response
                 })
                 overall_profanity_found = True
+        except Exception as e:
+            print(f"Error analyzing frame {frame_path}: {e}")
+            continue
+    """
+    
+    # New implementation using BLIP image captioning model
+    for frame_path in frames:
+        try:
+            image = Image.open(frame_path).convert("RGB")
+            frame_number = int(os.path.splitext(os.path.basename(frame_path))[0].split("_")[1])
+
+            analysis_report["frames_analyzed"] += 1
+            prompt = "describe everything you see in detail including any text, objects, people, colors, and setting"
+
+            # First prompt for general description
+            inputs = blip_processor(image, return_tensors="pt").to(DEVICE)
+            
+            with torch.no_grad():
+                generated_ids = blip_model.generate(**inputs)
+                
+            description = blip_processor.decode(generated_ids[0], skip_special_tokens=True)
+            
+            # Second prompt for OCR text detection
+            # inputs_ocr = blip_processor(images=image, text="Read and transcribe any text visible in this image.", return_tensors="pt").to(DEVICE)
+            
+            # with torch.no_grad():
+            #     generated_ids_ocr = blip_model.generate(**inputs_ocr, max_new_tokens=50)
+                
+            # ocr_text = blip_processor.decode(generated_ids_ocr[0], skip_special_tokens=True)
+            
+            # Combine results
+            # combined_text = f"Description: {description} | Text in image: {ocr_text}"
+            print(f"Frame {frame_number}: {description}")
+            
+            # Create a simplified JSON structure for consistency with previous implementation
+            json_data = {
+                "inappropriate": "NO",  # Not checking for inappropriate content
+                "category": None,
+                "description": description,
+                "ocr_text": description
+            }
+            
+            # Store the model's response for this frame
+            frame_response = {
+                "frame_number": frame_number,
+                "raw_response": description,
+                "parsed_json": json_data
+            }
+            analysis_report["model_responses"].append(frame_response)
+            
+            # Calculate timestamp for reference
+            timestamp_ms = (frame_number / frames_per_minute) * 60 * 1000
+            minutes = int(timestamp_ms / 60000)
+            seconds = int((timestamp_ms % 60000) / 1000)
+            milliseconds = int(timestamp_ms % 1000)
+            timestamp_formatted = f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+            
+            # Store frame description with timestamp
+            analysis_report["potential_profanity_incidents"].append({
+                "frame_number": frame_number,
+                "timestamp_ms": timestamp_ms,
+                "timestamp_formatted": timestamp_formatted,
+                "category": "frame_description",
+                "description": description,
+                "model_response": description
+            })
 
         except Exception as e:
             print(f"Error analyzing frame {frame_path}: {e}")
@@ -825,3 +988,97 @@ def analyse_llama(video_path, frames_to_sample_per_minute=30, batch_size=4, num_
     os.rmdir(temp_dir)
     
     return analysis_report
+
+def analyze_video_frames(frames_dir: str) -> Dict[str, Any]:
+    """
+    Analyze video frames for NSFW content and return structured results.
+    
+    Args:
+        frames_dir: Directory containing video frames
+        
+    Returns:
+        Dictionary with analysis results including frame-by-frame data
+    """
+    # Analyze frames using Falconsai model
+    # frame_results = detect_nsfw_falconsai(frames_dir)
+    frame_results = analyse_video(frames_dir)
+    
+    # Calculate summary statistics
+    total_frames = len(frame_results)
+    nsfw_frames = sum(1 for frame in frame_results if frame.get("is_nsfw", False))
+    nsfw_percentage = (nsfw_frames / total_frames * 100) if total_frames > 0 else 0
+    
+    # Find maximum confidence score
+    max_nsfw_confidence = 0.0
+    if nsfw_frames > 0:
+        max_nsfw_confidence = max(
+            frame.get("confidence", 0.0) 
+            for frame in frame_results 
+            if frame.get("is_nsfw", False)
+        )
+    
+    # Create flags for inappropriate frames
+    flags = []
+    for frame in frame_results:
+        if frame.get("is_nsfw", False):
+            flags.append({
+                "type": "explicit",
+                "confidence": frame.get("confidence", 0.0),
+                "timestamp": frame.get("timestamp_seconds", 0.0),
+                "timestamp_formatted": frame.get("timestamp_formatted", "00:00:00.000"),
+                "frame_number": frame.get("frame_number", 0)
+            })
+    
+    # Generate summary
+    summary = {
+        "total_frames_analyzed": total_frames,
+        "frames_with_nsfw_content": nsfw_frames,
+        "nsfw_percentage": nsfw_percentage,
+        "max_nsfw_confidence": max_nsfw_confidence
+    }
+    
+    # Determine content rating
+    if nsfw_percentage > 10 or max_nsfw_confidence > 0.8:
+        content_rating = "explicit"
+    elif nsfw_percentage > 0:
+        content_rating = "questionable"
+    else:
+        content_rating = "safe"
+    
+    # Create final result structure
+    result = {
+        "status": "completed",
+        "content_rating": content_rating,
+        "summary": summary,
+        "flags": flags,
+        "detailed_results": frame_results
+    }
+    
+    return result
+def process_video_frames_for_nsfw(video_path: str, frame_interval: int = 30) -> Dict[str, Any]:
+    """
+    Process video frames for content analysis using BLIP image captioning.
+    
+    Args:
+        video_path: Path to the video file
+        frame_interval: Process every Nth frame
+        
+    Returns:
+        Dictionary with frame-by-frame analysis results
+    """
+    # Use BLIP model for frame description and OCR
+    result = analyse_video(video_path, frame_interval)
+    
+    # Create a summary compatible with the existing database structure
+    summary = {
+        "total_frames_analyzed": result.get("frames_analyzed", 0),
+        "frames_with_nsfw_content": 0,  # Not detecting NSFW with BLIP
+        "nsfw_percentage": 0,
+        "max_nsfw_confidence": 0
+    }
+    
+    # Add summary to result
+    result["summary"] = summary
+    result["status"] = "completed"
+    
+    return result

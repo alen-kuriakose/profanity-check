@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS profanity_analysis (
     max_profanity_confidence FLOAT,
     processing_time_seconds FLOAT,
     transcript TEXT,
+    all_segments JSONB,
+    segments_with_profanity JSONB,
+    full_transcript_available BOOLEAN DEFAULT FALSE,
     result_data JSONB,
     error_message TEXT
 );

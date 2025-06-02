@@ -173,13 +173,25 @@ def check_audio_profanity(
         # 4. Create timestamp-based results
         timestamp_results = []
         segments_with_profanity = []
-        
+        all_segments = []
+        print ( f"Segments : {result.get('segments', [])}")
         for segment in result.get('segments', []):
             segment_text = segment.get('text', '').strip()
+            start_time = segment.get('start', 0)
+            end_time = segment.get('end', start_time + 1)
+            
+            # Add all segments to the full transcript list
+            all_segments.append({
+                "text": segment_text,
+                "start": start_time,
+                "end": end_time,
+                "start_formatted": format_timestamp(start_time),
+                "end_formatted": format_timestamp(end_time)
+            })
+            
+            # Process segments with profanity
             if segment_text and profanity.contains_profanity(segment_text):
                 segment_confidence = calculate_profanity_confidence(segment_text)[0]
-                start_time = segment.get('start', 0)
-                end_time = segment.get('end', start_time + 1)
                 
                 segments_with_profanity.append({
                     "text": segment_text,
@@ -207,6 +219,7 @@ def check_audio_profanity(
             "profanity_words": confidence_result[1].get("detected_words", {}),
             "timestamp_results": timestamp_results,
             "segments_with_profanity": segments_with_profanity,
+            "all_segments": all_segments,
             "language": result.get('language'),
             "status": "processed",
             "content_rating": "profane" if has_profanity else "safe"

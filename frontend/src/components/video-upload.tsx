@@ -601,7 +601,7 @@ export function VideoUpload({ onAnalysisComplete }: VideoUploadProps) {
                     <p className="text-sm text-blue-700 font-medium">
                       Synchronous Analysis
                     </p>
-                    <p className="text-xs text-blue-600 mt-1">
+                    <p className="text-xs   mt-1">
                       The video will be analyzed immediately and results will be
                       returned when complete. Best for smaller videos (under
                       50MB).

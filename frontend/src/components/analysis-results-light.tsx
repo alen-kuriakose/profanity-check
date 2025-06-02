@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { VideoAnalysisResult } from '@/lib/api';
+import { TranscriptViewer } from '@/components/transcript-viewer';
 import { 
   AlertCircle, 
   CheckCircle, 
@@ -159,6 +160,8 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
     downloadAnchorNode.remove();
   };
   
+  console.log("jdjfjd",results)
+
   return (
     <div className="space-y-8">
       {/* Summary Card */}
@@ -315,6 +318,20 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
         <TabsList className="bg-gray-100 border border-gray-200 mb-6">
           <TabsTrigger value="flags" className="data-[state=active]:bg-white">Content Flags</TabsTrigger>
           <TabsTrigger value="frames" className="data-[state=active]:bg-white">Frame Analysis</TabsTrigger>
+          <TabsTrigger 
+            value="transcript" 
+            className="data-[state=active]:bg-white"
+            disabled={!results.transcript && !(summary.profanity?.transcript_available)}
+          >
+            Transcript
+          </TabsTrigger>
+          <TabsTrigger 
+            value="model-responses" 
+            className="data-[state=active]:bg-white"
+            disabled={!summary.model_responses || summary.model_responses.length === 0}
+          >
+            Model Responses
+          </TabsTrigger>
         </TabsList>
         
         <TabsContent value="flags" className="space-y-4">
@@ -379,7 +396,23 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
                                 {/* <span className="text-xs text-gray-500">Frame {flag.frame_number}</span> */}
                               </div>
                             ) : (
-                              <span>Frame {flag.frame_number}</span>
+                              <div className="flex flex-col">
+                                <span>Frame {flag.frame_number}</span>
+                                {flag.model_response && (
+                                  <button 
+                                    className="text-xs text-blue-600 hover:text-blue-800 mt-1"
+                                    onClick={() => {
+                                      // Find the tab trigger for model responses and click it
+                                      const modelResponsesTab = document.querySelector('[value="model-responses"]');
+                                      if (modelResponsesTab) {
+                                        (modelResponsesTab as HTMLElement).click();
+                                      }
+                                    }}
+                                  >
+                                    View model response
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </TableCell>
                         </TableRow>
@@ -519,6 +552,98 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
                   <FileVideo className="h-12 w-12 mx-auto text-gray-400 mb-4" />
                   <h3 className="text-xl font-medium text-gray-800 mb-2">No Frame Data Available</h3>
                   <p className="text-gray-500">No frame analysis data is available for this video.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="transcript" className="space-y-4">
+          {results?.summary?.transcript ? (
+            <TranscriptViewer
+              transcript={results?.summary.transcript}
+              // language={results.transcript.language || "en"}
+              // segments_with_profanity={results.transcript.segments_with_profanity || []}
+              // all_segments={results.transcript.all_segments || []}
+              // full_transcript_available={results.full_transcript_available || false}
+            />
+          ) : (
+            <Card className="border-gray-200 shadow-md">
+              <CardHeader>
+                <CardTitle>Transcript</CardTitle>
+                <CardDescription>
+                  No transcript available for this video
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <MessageSquare className="h-12 w-12 text-gray-300 mb-4" />
+                  <p className="text-gray-500">No transcript data is available for this video.</p>
+                  {summary.profanity?.has_profanity && !summary.profanity?.transcript_available && (
+                    <p className="text-sm text-gray-400 mt-2">
+                      Profanity was detected but no transcript was generated
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        
+        <TabsContent value="model-responses" className="space-y-4">
+          <Card className="border-gray-200 shadow-md">
+            <CardHeader>
+              <CardTitle>AI Model Responses</CardTitle>
+              <CardDescription>
+                Raw responses from the SmolVLM model for each analyzed frame
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {summary.model_responses && summary.model_responses.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-gray-50">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="w-[100px]">Frame</TableHead>
+                        <TableHead className="w-[150px]">Result</TableHead>
+                        <TableHead>Model Response</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {summary.model_responses.map((response, index) => (
+                        <TableRow key={index} className={response.parsed_json?.inappropriate === "YES" ? "bg-gray-50 hover:bg-gray-100" : "hover:bg-gray-50"}>
+                          <TableCell>{response.frame_number}</TableCell>
+                          <TableCell>
+                            {response.parsed_json?.inappropriate === "YES" ? (
+                              <Badge className="bg-red-100 text-red-700 border-red-200">
+                                Inappropriate
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-700 border-green-200">
+                                Safe
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-h-32 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200 text-sm font-mono">
+                              {response.raw_response}
+                            </div>
+                            {response.parsed_json?.inappropriate === "YES" && (
+                              <div className="mt-2">
+                                <span className="font-semibold">Category:</span> {response.parsed_json.category || "Unknown"}<br />
+                                <span className="font-semibold">Description:</span> {response.parsed_json.description || "No description"}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <FileVideo className="h-12 w-12 text-gray-300 mb-4" />
+                  <p className="text-gray-500">No model response data is available for this video.</p>
                 </div>
               )}
             </CardContent>

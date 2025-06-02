@@ -12,6 +12,15 @@ const api = axios.create({
 });
 
 // Define types for the API responses
+export interface TranscriptSegment {
+  text: string;
+  start: number;
+  end: number;
+  start_formatted: string;
+  end_formatted: string;
+  confidence?: number;
+}
+
 export interface VideoAnalysisResult {
   content_id: string;
   filename: string;
@@ -22,15 +31,29 @@ export interface VideoAnalysisResult {
     timestamp_formatted?: string;
     frame_number?: number;
     text?: string;
+    model_response?: string;  // Added field for model response
   }[];
   status: string;
   content_rating: 'safe' | 'questionable' | 'explicit' | 'violent' | 'profane';
+  transcript?: {
+    text: string;
+    language: string;
+    segments_with_profanity: TranscriptSegment[];
+    all_segments: TranscriptSegment[];
+  };
+  full_transcript_available?: boolean;
   summary?: {
     content_id: string;
     filename: string;
     total_frames_analyzed: number;
     frames_with_inappropriate_content: number;
     inappropriate_percentage: number;
+    transcript: string,
+    model_responses?: {  // Added field for model responses
+      frame_number: number;
+      raw_response: string;
+      parsed_json: any;
+    }[],
     nsfw: {
       frames_detected: number;
       percentage: number;
@@ -45,6 +68,9 @@ export interface VideoAnalysisResult {
       frames_detected: number;
       percentage: number;
       max_confidence: number;
+      has_profanity?: boolean;
+      transcript_available?: boolean;
+      full_transcript_available?: boolean;
     };
     processing_time_seconds: number;
     frames_per_second: number;
@@ -106,6 +132,7 @@ export const videoAnalysisApi = {
       checkViolence?: boolean;
       checkProfanity?: boolean;
       confidenceThreshold?: number;
+      language?: string;
     } = {}
   ): Promise<VideoAnalysisResult> => {
     const formData = new FormData();

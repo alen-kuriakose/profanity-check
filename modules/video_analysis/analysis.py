@@ -294,6 +294,7 @@ def check_audio_profanity(
         
         # 2. Transcribe audio using Whisper
         logging.info(f"Transcribing audio using Whisper model: {model_size}")
+        
         model = get_whisper_model(model_size)
         
         transcribe_options = {}

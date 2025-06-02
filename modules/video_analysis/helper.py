@@ -5,9 +5,13 @@ import cv2
 import logging
 import os
 
+import torch
 from ultralytics import YOLO
+import whisper
 
-from modules.video_analysis.nsfw_checker import detect_nudity_falconsai
+from modules.video_analysis.nsfw_checker import detect_nsfw_falconsai
+
+# from modules.video_analysis.nsfw_checker import detect_nudity_falconsai
 def calculate_profanity_confidence(text):
         """
         Calculate a confidence score for profanity based on:
@@ -297,7 +301,8 @@ def divide_video_to_frames(video_path):
     cap.release()
     # detect_violence(output_folder)
     # detect_nudity_falconsai(output_folder)
-    predit_action(output_folder)
+    detect_nsfw_falconsai(output_folder)
+    # predit_action(output_folder)
     # print(f"Extracted {count} frames from {video_path} to {output_folder} with video having {fps} fps")
     
 from transformers import CLIPProcessor, CLIPModel
@@ -343,27 +348,45 @@ import cv2
 from glob import glob
 from pathlib import Path
 
+import logging
+import whisper
+
+# Cache to store loaded Whisper models
+_whisper_model_cache = {}
+
 def get_whisper_model(model_size="tiny"):
     """
-    Get a Whisper model with the specified size.
+    Get a Whisper model with the specified size, caching it for reuse.
     
     :param model_size: Size of the model ('tiny', 'base', 'small', 'medium', 'large')
     :return: Loaded Whisper model
     """
-    import whisper
-    
     # Validate model size
     valid_sizes = ["tiny", "base", "small", "medium", "large"]
     if model_size not in valid_sizes:
         logging.warning(f"Invalid model size: {model_size}. Using 'tiny' instead.")
         model_size = "tiny"
     
-    # Load and return the model
+    # Check if model is already cached
+    if model_size in _whisper_model_cache:
+        logging.info(f"Using cached Whisper model: {model_size}")
+        return _whisper_model_cache[model_size]
+    
+    # Load and cache the model
     logging.info(f"Loading Whisper model: {model_size}")
-    return whisper.load_model(model_size)
-
+    try:
+        # Fix for meta tensor error - use download_root to ensure model is downloaded first
+        # and specify device directly in load_model
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        whisper_model = whisper.load_model(model_size, device=device, download_root=None)
+        _whisper_model_cache[model_size] = whisper_model
+        logging.info(f"Whisper model {model_size} loaded and cached successfully")
+    except Exception as e:
+        logging.error(f"Failed to load Whisper model: {str(e)}")
+        raise
+    
+    return whisper_model
 from model.model import Model
-# from utils import plot
 
 def predit_action(frames_folder):
     model = Model()

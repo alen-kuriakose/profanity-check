@@ -66,7 +66,9 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
         audio_has_profanity = audio_profanity_results.get("has_profanity", False)
         audio_profanity_confidence = audio_profanity_results.get("confidence", 0.0)
         audio_profanity_segments = audio_profanity_results.get("timestamp_results", [])
-        
+        audio_transcript = audio_profanity_results.get("transcript", [])
+        logger.info(f"Audio profanity analysis completed: {audio_has_profanity} with confidence {audio_profanity_confidence}")
+        logger.info(f"Audio transcript: {audio_transcript}")
         # Initialize counters
         profanity_frames = 0
         max_profanity_confidence = 0.0
@@ -123,6 +125,7 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
             "filename": os.path.basename(file_path),
             "total_frames_analyzed": frames_analyzed,
             "frames_with_inappropriate_content": profanity_frames,
+            "transcript":audio_transcript,
             "inappropriate_percentage": (profanity_frames / frames_analyzed * 100) if frames_analyzed > 0 else 0,
             "nsfw": {
                 "frames_detected": 0,
@@ -144,7 +147,7 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
             "processing_time_seconds": processing_time,
             "frames_per_second": frames_analyzed / processing_time if processing_time > 0 else 0
         }
-        
+        logger.info(f"Summary: {summary}")
         # Determine content rating
         content_rating = "safe"
         if audio_has_profanity:
@@ -174,6 +177,16 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
         }
         
         # Update database with results
+        # Prepare result data with all segments and metadata included
+        if "all_segments" in audio_profanity_results:
+            result_data["all_segments"] = audio_profanity_results.get("all_segments", [])
+        if "segments_with_profanity" in audio_profanity_results:
+            result_data["segments_with_profanity"] = audio_profanity_results.get("segments_with_profanity", [])
+        
+        # Include full_transcript_available in result_data instead of as a separate column
+        result_data["full_transcript_available"] = True
+        result_data["transcript"] = audio_profanity_results.get("transcript", "")
+        
         db.update_profanity_analysis(
             analysis_id,
             'completed',
@@ -183,8 +196,8 @@ def process_profanity_analysis(message: Dict[str, Any]) -> bool:
             frames_analyzed=frames_analyzed,
             max_profanity_confidence=max_profanity_confidence,
             processing_time_seconds=processing_time,
-            transcript=audio_profanity_results.get("transcript", ""),
-            result_data=json.dumps(result_data)
+            result_data=result_data,
+            transcript=audio_profanity_results.get("transcript", "")
         )
         
         logger.info(f"Completed profanity analysis for video {content_id}: found profanity in {profanity_frames}/{frames_analyzed} frames")

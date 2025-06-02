@@ -46,6 +46,11 @@ export default function ResultsPage() {
           }];
         }
         
+        // Ensure model_responses exists
+        if (!results.model_responses) {
+          results.model_responses = [];
+        }
+        
         setAnalysisResults(results);
       } catch (err) {
         console.error('Failed to fetch results:', err);
@@ -70,8 +75,8 @@ export default function ResultsPage() {
       <header className="border-b border-gray-200 sticky top-0 z-10 backdrop-blur-md ">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="h-6 w-6 text-blue-600" />
-            <h1 className="text-xl font-bold text-blue-600">
+            <Shield className="h-6 w-6  " />
+            <h1 className="text-xl font-bold  ">
               Video Analysis
             </h1>
           </div>
@@ -121,7 +126,7 @@ export default function ResultsPage() {
         ) : analysisResults ? (
           <div className="space-y-8">
             <div className="w-full">
-              <h2 className="text-2xl font-bold mb-6 text-center text-blue-600">
+              <h2 className="text-2xl font-bold mb-6 text-center  ">
                 Content Analysis Report
               </h2>
               <AnalysisResults results={analysisResults} />

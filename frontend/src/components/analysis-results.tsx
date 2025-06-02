@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { VideoAnalysisResult } from '@/lib/api';
+import { TranscriptViewer } from '@/components/transcript-viewer';
 import { 
   AlertCircle, 
   CheckCircle, 
@@ -312,7 +313,7 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
       </Card>
       
       <Tabs defaultValue="flags" className="mt-8">
-        <TabsList className="grid w-full grid-cols-3 p-1 bg-zinc-800/50 border border-zinc-700">
+        <TabsList className="grid w-full grid-cols-4 p-1 bg-zinc-800/50 border border-zinc-700">
           <TabsTrigger value="flags" className="rounded-md py-2 data-[state=active]:bg-zinc-700 data-[state=active]:text-zinc-100">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
@@ -332,6 +333,21 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
               <span>Timeline</span>
+            </div>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="transcript" 
+            className="rounded-md py-2 data-[state=active]:bg-zinc-700 data-[state=active]:text-zinc-100"
+            disabled={!results.transcript && !(summary.profanity?.transcript_available)}
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              <span>Transcript</span>
+              {results.transcript && (
+                <Badge variant="secondary" className="ml-1 bg-purple-500/20 text-purple-300 border-purple-500/30">
+                  {results.transcript.all_segments?.length || results.transcript.segments_with_profanity?.length || 0}
+                </Badge>
+              )}
             </div>
           </TabsTrigger>
         </TabsList>
@@ -631,6 +647,40 @@ export function AnalysisResults({ results }: AnalysisResultsProps) {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        
+        <TabsContent value="transcript" className="mt-6">
+          {results.transcript ? (
+            <TranscriptViewer
+              transcript={results.transcript.text}
+              language={results.transcript.language || "en"}
+              segments_with_profanity={results.transcript.segments_with_profanity || []}
+              all_segments={results.transcript.all_segments || []}
+              full_transcript_available={results.full_transcript_available || false}
+            />
+          ) : (
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg">Transcript</CardTitle>
+                <CardDescription>
+                  No transcript available for this video
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center justify-center py-8 mt-4 text-center">
+                  <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-lg font-medium text-muted-foreground">
+                    No transcript data available
+                  </p>
+                  {summary.profanity?.has_profanity && !summary.profanity?.transcript_available && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Profanity was detected but no transcript was generated
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

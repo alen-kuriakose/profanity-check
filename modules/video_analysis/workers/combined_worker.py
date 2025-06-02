@@ -198,6 +198,19 @@ def process_combined_analysis(message: Dict[str, Any]) -> bool:
         video = db.get_video_by_id(video_id)
         filename = video.get('filename', '') if video else ''
         
+        # Extract model responses from NSFW analysis if available
+        model_responses = []
+        nsfw_result_data = nsfw_analysis.get('result_data', {})
+        if isinstance(nsfw_result_data, str):
+            try:
+                nsfw_result_data = json.loads(nsfw_result_data)
+            except json.JSONDecodeError:
+                nsfw_result_data = {}
+        
+        # Check if model_responses exists in the NSFW analysis
+        if isinstance(nsfw_result_data, dict) and 'model_responses' in nsfw_result_data:
+            model_responses = nsfw_result_data.get('model_responses', [])
+        
         # Generate summary statistics
         summary = {
             "content_id": content_id,
@@ -205,6 +218,8 @@ def process_combined_analysis(message: Dict[str, Any]) -> bool:
             "total_frames_analyzed": safe_int(total_frames_analyzed),
             "frames_with_inappropriate_content": safe_int(inappropriate_frames),
             "inappropriate_percentage": safe_float(inappropriate_percentage),
+            "transcript": profanity_analysis.get('transcript', []),
+            "model_responses": model_responses,  # Include model responses in the summary
             "nsfw": {
                 "frames_detected": safe_int(nsfw_analysis.get('nsfw_frames', 0)),
                 "percentage": safe_float(nsfw_analysis.get('nsfw_percentage', 0)),

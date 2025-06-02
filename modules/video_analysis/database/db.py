@@ -331,6 +331,9 @@ def insert_profanity_analysis(
         frames_analyzed: Total number of frames analyzed
         max_profanity_confidence: Maximum confidence score for profanity detection
         transcript: Transcript of the audio (if applicable)
+        all_segments: JSON string containing all transcript segments with timestamps
+        segments_with_profanity: JSON string containing transcript segments with profanity
+        full_transcript_available: Whether the full transcript with timestamps is available
         result_data: Additional result data as JSON
         
     Returns:
@@ -380,10 +383,36 @@ def update_profanity_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             elif status == 'completed':
                 sql += ", completed_at = NOW()"
             
+            # Handle result_data specially to ensure it's properly converted to JSONB
+            if 'result_data' in kwargs:
+                result_data = kwargs.pop('result_data')
+                if isinstance(result_data, str):
+                    try:
+                        # If it's a JSON string, parse it to ensure it's valid
+                        result_data = json.loads(result_data)
+                    except json.JSONDecodeError:
+                        # If it's not valid JSON, keep it as is
+                        pass
+                # Convert to psycopg2 Json object
+                sql += ", result_data = %s::jsonb"
+                params.append(Json(result_data))
+            
             # Add additional fields from kwargs
             for key, value in kwargs.items():
-                if key == 'result_data':
-                    sql += f", {key} = %s::jsonb"
+                # Skip known problematic columns that might not exist in the database
+                if key in ['all_segments', 'segments_with_profanity', 'full_transcript_available']:
+                    logger.info(f"Skipping potentially problematic column: {key}")
+                    continue
+                    
+                # Handle other JSON fields properly
+                if key.endswith('_json') or key in ['result_data']:
+                    if isinstance(value, str):
+                        # If it's already a JSON string
+                        sql += f", {key} = %s::jsonb"
+                    else:
+                        # If it's a Python object that needs to be converted to JSON
+                        sql += f", {key} = %s::jsonb"
+                        value = Json(value)
                 else:
                     sql += f", {key} = %s"
                 params.append(value)
@@ -392,9 +421,27 @@ def update_profanity_analysis(analysis_id: int, status: str, **kwargs) -> bool:
             sql += " WHERE id = %s"
             params.append(analysis_id)
             
-            cur.execute(sql, params)
-            conn.commit()
-            return cur.rowcount > 0
+            try:
+                logger.debug(f"Executing SQL: {sql} with params: {params}")
+                cur.execute(sql, params)
+                conn.commit()
+                return cur.rowcount > 0
+            except Exception as e:
+                logger.error(f"Error updating profanity analysis: {str(e)}")
+                # If the error is about missing columns, try to update only the valid columns
+                if "column" in str(e) and "does not exist" in str(e):
+                    # Get the column name from the error message
+                    import re
+                    match = re.search(r'column "([^"]+)" of relation', str(e))
+                    if match:
+                        bad_column = match.group(1)
+                        logger.warning(f"Removing invalid column from update: {bad_column}")
+                        # Remove the problematic column and try again
+                        if bad_column in kwargs:
+                            del kwargs[bad_column]
+                            return update_profanity_analysis(analysis_id, status, **kwargs)
+                conn.rollback()
+                raise
 
 # Combined analysis operations
 def insert_combined_analysis(video_id: int) -> int:

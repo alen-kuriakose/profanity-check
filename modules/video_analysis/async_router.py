@@ -1,6 +1,3 @@
-"""
-Asynchronous router for video analysis with Kafka and PostgreSQL.
-"""
 import os
 import uuid
 import logging
@@ -180,7 +177,8 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
                     "content_rating": combined.get("content_rating", "safe"),
                     "flags": combined["result_data"].get("flags", []),
                     "summary": combined["result_data"].get("summary", {}),
-                    "detailed_results": combined["result_data"].get("detailed_results", []) if include_details else []
+                    "detailed_results": combined["result_data"].get("detailed_results", []) if include_details else [],
+                    "model_responses": combined["result_data"].get("model_responses", [])  # Include model responses
                 }
         
         # If not a sync video or result_data doesn't have the expected structure,
@@ -190,7 +188,9 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
         nsfw_analysis = results.get("nsfw_analysis", {})
         violence_analysis = results.get("violence_analysis", {})
         profanity_analysis = results.get("profanity_analysis", {})
-        
+        logger.warning()(f"profanioty analysis : {profanity_analysis}")
+        logger.warning()(f"nsfw analysis : {nsfw_analysis}")
+        logger.warning()("inside the code")
         # Calculate metrics
         nsfw_frames = 0
         violence_frames = 0
@@ -623,6 +623,7 @@ async def get_analysis_results(content_id: str, include_details: bool = Query(Tr
                 segments_with_profanity = profanity_data.get("segments_with_profanity", [])
                 
                 # Create a more structured profanity data object
+                
                 profanity_data = {
                     "details": profanity_details_data,
                     "segments": segments_with_profanity,
@@ -860,3 +861,83 @@ async def health_check():
             "status": "unhealthy",
             "error": str(e)
         }
+@router.post("/nsfw-check-async")
+async def check_nsfw_in_video_async(
+    content_id: str = Form(..., description="Unique identifier for the content"),
+    file: UploadFile = File(..., description="Video file to analyze"),
+    frame_interval: int = Form(30, description="Process every Nth frame")
+):
+    """
+    Upload a video for asynchronous NSFW content analysis.
+    
+    The video will be stored and queued for analysis. The analysis will be performed
+    asynchronously, and the results can be retrieved later using the content ID.
+    """
+    try:
+        # Check if content_id already exists
+        existing_video = db.get_video_by_content_id(content_id)
+        if existing_video:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "Content ID already exists",
+                    "content_id": content_id,
+                    "status": existing_video["status"]
+                }
+            )
+        
+        # Save the uploaded file
+        file_path, file_size = save_uploaded_video(content_id, file)
+        
+        # Insert video record in database
+        video_id = db.insert_video(
+            content_id=content_id,
+            filename=file.filename,
+            file_path=file_path,
+            file_size=file_size,
+            mime_type=file.content_type or "video/mp4"
+        )
+        
+        # Insert NSFW analysis record
+        nsfw_id = db.insert_nsfw_analysis(video_id)
+        
+        # Insert combined analysis record
+        combined_id = db.insert_combined_analysis(video_id)
+        
+        # Send message to Kafka for processing
+        try:
+            # Create a message with analysis_id for the NSFW worker
+            message = {
+                "video_id": video_id,
+                "content_id": content_id,
+                "file_path": file_path,
+                "analysis_id": nsfw_id,
+                "analysis_type": "nsfw",
+                "frame_interval": frame_interval
+            }
+            
+            # Send the message to Kafka
+            from modules.video_analysis.kafka.producer import send_message
+            result = send_message("video_nsfw_analysis", message)
+            
+            if result:
+                logger.info(f"Video {content_id} queued for NSFW analysis")
+                status = "queued"
+            else:
+                logger.warning(f"Failed to queue video {content_id} for NSFW analysis")
+                status = "pending"
+        except Exception as e:
+            logger.warning(f"Error queueing video for NSFW analysis: {str(e)}. Video will be in pending state.")
+            status = "pending"
+        
+        return {
+            "content_id": content_id,
+            "filename": file.filename,
+            "file_size": file_size,
+            "status": status,
+            "message": "Video uploaded successfully for NSFW analysis"
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error uploading video for NSFW analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error uploading video: {str(e)}")
